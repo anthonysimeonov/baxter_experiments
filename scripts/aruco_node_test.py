@@ -19,7 +19,7 @@ board = aruco.GridBoard_create(xBoard, yBoard, markerLength, markerSep, aruco_di
 
 while(True):
     # Capture cap-by-cap
-    cap = cv2.imread('/home/anthony/ros_ws/src/baxter_experiments/scripts/test_markers/marker1.jpg')
+    cap = cv2.imread('/home/anthony/ros_ws/src/baxter_experiments/scripts/test_markers/center.png')
     #print(cap.shape) #480x640
     # Our operations on the cap come here
     gray = cv2.cvtColor(cap, cv2.COLOR_BGR2GRAY)
