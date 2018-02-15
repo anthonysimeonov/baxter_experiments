@@ -8,7 +8,6 @@ project(baxter_experiments)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  aruco_ros
   baxter_examples
   baxter_interface
   baxter_tools
