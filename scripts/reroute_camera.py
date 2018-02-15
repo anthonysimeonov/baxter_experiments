@@ -16,8 +16,8 @@ class CameraRerouter:
 		self.image_pub.publish(data)
 
 	def info_handler(self, data):
-		data.roi.x_offset = -320
-		data.roi.y_offset = -200
+		data.roi.x_offset = 0
+		data.roi.y_offset = 0
 		self.info_pub.publish(data)
 
 if __name__ == '__main__':
