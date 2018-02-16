@@ -42,39 +42,6 @@ class estimatePose:
         except CvBridgeError as e:
             print(e)
         #hard coded aruco board parameters
-        # aruco_dict = aruco.Dictionary_get(aruco.DICT_6X6_1000)
-        #
-        # camera_matrix =  np.array([[404.338014371, 0.0, 643.418416949], [0.0, 404.338014371, 367.605812816], [0.0, 0.0, 1.0]])
-        # dist_coeffs = np.array([0.0191892768671, -0.0528678190185, 0.000125957631372, -0.000467705162547, 0.0132508989191])
-        #
-        # xBoard = 2
-        # yBoard = 4
-        # markerLength = 40 #meters
-        # markerSep = 8
-        #
-        # #process aruco board
-        # board = aruco.GridBoard_create(xBoard, yBoard, markerLength, markerSep, aruco_dict)
-        # image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        # parameters =  aruco.DetectorParameters_create()
-        #
-        # corners, ids, rejectedImgPoints = aruco.detectMarkers(image, aruco_dict, parameters=parameters)
-        # aruco.refineDetectedMarkers(image, board, corners, ids, rejectedImgPoints)
-        #
-        # if len(corners) > 0:
-        #     retval, rvec, tvec = aruco.estimatePoseBoard(corners, ids, board, camera_matrix, dist_coeffs)
-        #     # pose = aruco.estimatePoseSingleMarkers(corners[0][:], markerLength, self.camMat, self.distCoeffs)
-        # # else:
-        #     #pose = (0,[0,0,0],[0,0,0])
-        # #print(pose)
-        #
-        # # rvec = pose[1][:]
-        # # tvec = pose[2][:]
-        # # poseQuaternion = tf2_ros.Quaternion.Quaternion(rvec)
-        # poseQuaternion = euler2quat(rvec[0], rvec[1], rvec[2])
-        #
-        # #create separate new images with overlayed axis, and markers
-        # image = aruco.drawAxis(image, camera_matrix, dist_coeffs, rvec, tvec, 100)
-        # image_markers = aruco.drawDetectedMarkers(image, corners, ids, (255,0,0))
         aruco_dict = aruco.Dictionary_get( aruco.DICT_6X6_1000 )
 
         markerLength = 40   # Here, our measurement unit is centimetre.
