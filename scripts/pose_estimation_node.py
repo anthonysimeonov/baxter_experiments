@@ -44,9 +44,9 @@ class estimatePose:
         #hard coded aruco board parameters
         aruco_dict = aruco.Dictionary_get( aruco.DICT_6X6_1000 )
 
-        markerLength = 40   # Here, our measurement unit is centimetre.
-        markerSeparation = 8   # Here, our measurement unit is centimetre.
-        board = aruco.GridBoard_create(2, 4, markerLength, markerSeparation, aruco_dict)
+        markerLength = 12.35   # Here, our measurement unit is centimetre.
+        markerSeparation = 2.47   # Here, our measurement unit is centimetre.
+        board = aruco.GridBoard_create(1, 2, markerLength, markerSeparation, aruco_dict)
 
         arucoParams = aruco.DetectorParameters_create()
 

@@ -124,8 +124,8 @@ class Trajectory(object):
         self._gripper_rate = 20.0  # Hz
 
         #publish timing topics
-        self.timing_pub = rospy.Publisher('/board_pose/cycle_on', std_msgs.Bool, queue_size = 0)
-        self.timing_msg = std_msgs.Bool()
+        self.timing_pub_state = rospy.Publisher('/board_pose/cycle_on', std_msgs.Bool, queue_size = 0)
+        self.timing_msg_state = std_msgs.Bool()
 
     def _execute_gripper_commands(self):
         start_time = rospy.get_time() - self._trajectory_actual_offset.to_sec()
@@ -336,10 +336,10 @@ class Trajectory(object):
 
     def publish_bool(self, trajectory_state):
         if trajectory_state:
-            self.timing_msg.data = 1
+            self.timing_msg_state.data = 1
         else:
-            self.timing_msg.data = 0
-        self.timing_pub.Publish(self.timing_msg)
+            self.timing_msg_state.data = 0
+        self.timing_pub_state.publish(self.timing_msg_state)
 
 
 def main():
@@ -397,10 +397,10 @@ Related examples:
     while (result == True and loop_cnt <= args.loops
            and not rospy.is_shutdown()):
         print("Playback loop %d of %s" % (loop_cnt, loopstr,))
-        traj.timing_pub(1)
+        traj.publish_bool(1)
         traj.start()
         result = traj.wait()
-        traj.timing_pub(0)
+        traj.publish_bool(0)
         loop_cnt = loop_cnt + 1
     print("Exiting - File Playback Complete")
 
