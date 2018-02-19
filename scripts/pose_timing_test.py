@@ -20,9 +20,9 @@ class estimatePose:
         self.cycle_sub = rospy.Subscriber('/board_pose/cycle_on', std_msgs.Bool, self.cycle_handler)
 
         #publishers
-        self.image_markers_pub = rospy.Publisher('/board_pose/image_markers', sensor_msgs.Image, queue_size = 0)
-        self.pose_pub = rospy.Publisher('/board_pose/pose', geometry_msgs.PoseStamped, queue_size = 0)
-        self.cycle_time_pub = rospy.Publisher('/board_pose/cycle_time_2', std_msgs.Time, queue_size = 0)
+        self.image_markers_pub = rospy.Publisher('/board_pose/image_markers', sensor_msgs.Image, queue_size = 1)
+        self.pose_pub = rospy.Publisher('/board_pose/pose', geometry_msgs.PoseStamped, queue_size = 1)
+        self.cycle_time_pub = rospy.Publisher('/board_pose/cycle_time_2', std_msgs.Time, queue_size = 1)
 
         #initialize self variables
         self.bridge = CvBridge()
@@ -32,6 +32,7 @@ class estimatePose:
         #empty published topics
         self.pose_msg = geometry_msgs.PoseStamped()
         self.cycle_time_msg = std_msgs.Time()
+        self.bad = 0
 
     def info_handler(self, data):
         #get information from camera info topic and map it to inputs for the aruco functions
@@ -65,18 +66,24 @@ class estimatePose:
         corners, ids, rejectedImgPoints = aruco.detectMarkers(frame_remapped_gray, aruco_dict, parameters=arucoParams)  # First, detect markers
         aruco.refineDetectedMarkers(frame_remapped_gray, board, corners, ids, rejectedImgPoints)
 
-
-        if len(ids)>0: # if there is at least one marker detected
-            im_with_aruco_board = aruco.drawDetectedMarkers(frame_remapped, corners, ids, (0,255,0))
+        if ids is not None: # if there is at least one marker detected
+            #im_with_aruco_board = aruco.drawDetectedMarkers(frame_remapped, corners, ids, (0,255,0))
+            im_with_aruco_board = frame_remapped
             retval, rvec, tvec = aruco.estimatePoseBoard(corners, ids, board, camera_matrix, dist_coeffs)  # posture estimation from a diamond
             if retval != 0:
-                im_with_aruco_board = aruco.drawAxis(im_with_aruco_board, camera_matrix, dist_coeffs, rvec, tvec, 100)  # axis length 100 can be changed according to your requirement
+                #im_with_aruco_board = aruco.drawAxis(im_with_aruco_board, camera_matrix, dist_coeffs, rvec, tvec, 100)  # axis length 100 can be changed according to your requirement
+                poseQuaternion = euler2quat(rvec[0], rvec[1], rvec[2])    
         else:
+            self.bad += 1
+            print('bad pose %d!\n' % (self.bad))
             im_with_aruco_board = frame_remapped
+            filestr = "im%d.jpg" % (self.bad)
+            cv2.imwrite(filestr,im_with_aruco_board)
+            tvec = [100000, 100000, 100000]
+            poseQuaternion = [-1, -1, -1, -1]
 
         image_markers = im_with_aruco_board
 
-        poseQuaternion = euler2quat(rvec[0], rvec[1], rvec[2])
 
         #convert to ROS msg types
         now = rospy.Time.now()
@@ -105,14 +112,12 @@ class estimatePose:
             print(e)
 
     def cycle_handler(self, data):
-        print(data)
         if data:
             self.cycle_time_pub.publish(self.cycle_time_msg)
 
 
 if __name__== '__main__':
     rospy.init_node('pose_estimator', anonymous = True)
-    rate = rospy.Rate(10)
     pose_estimator = estimatePose()
     while not rospy.is_shutdown():
-        rate.sleep()
+        rospy.spin()

@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 class estimatePose:
     def __init__(self):
         #subscribers
-        self.image_sub = rospy.Subscriber('/cameras/right_hand_camera/image', sensor_msgs.Image, self.img_handler)
+        self.image_sub = rospy.Subscriber('/cameras/right_hand_camera/image_rect_color', sensor_msgs.Image, self.img_handler)
         self.info_sub = rospy.Subscriber('/cameras/right_hand_camera/camera_info', sensor_msgs.CameraInfo, self.info_handler)
 
         #publishers
