@@ -126,13 +126,17 @@ class Trajectory(object):
         #publish timing topics
         self.timing_pub_state = rospy.Publisher('/board_pose/cycle_on', std_msgs.Bool, queue_size = 0)
         self.timing_msg_state = std_msgs.Bool()
+	self.timing_pub_time = rospy.Publisher('/board_pose/cycle_time', std_msgs.Time, queue_size = 1)
+	self.timing_msg_time = std_msgs.Time()
 
     def publish_bool(self, trajectory_state):
         if trajectory_state:
             self.timing_msg_state.data = 1
         else:
             self.timing_msg_state.data = 0
+	self.timing_msg_time = rospy.Time.now()
         self.timing_pub_state.publish(self.timing_msg_state)
+	self.timing_pub_time.publish(self.timing_msg_time)
 
     def _execute_gripper_commands(self):
         start_time = rospy.get_time() - self._trajectory_actual_offset.to_sec()
