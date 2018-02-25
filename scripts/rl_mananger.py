@@ -60,7 +60,6 @@ import sensor_msgs.msg as sensor_msgs
 import vicon.msg as vicon
 
 
-
 class Trajectory(object):
     def __init__(self, action_vector, demo_flag):
         #create our action server clients
@@ -140,9 +139,12 @@ class Trajectory(object):
 
         #Episodal data
         self.number_actions_taken = 0
-        self.sum_q_values = 0
+        self.sum_q_
+import sklearnvalues = 0
         self.total_reward = 0
         self.time_per_episode = None
+        self.step = 0
+        self.q_step = 0
 
         #RL communication
         self.observation_sub = rospy.Subscriber('/robot/joint_states', sensor_msgs.JointState, self.observe_joints)
@@ -152,34 +154,27 @@ class Trajectory(object):
         self.world_position = None
 
         #Demonstration information
-        self.demo_positions = None
-        self.demo_torques = None
-        self.demo_angles = None
-        self.observation_mapping =   #regressor from s_t to o_t
+        self.demo = {'o':[], 's':[]}    #joint angles and torques (observations)
 
         #Boolean flag for demonstration or for learning
         self.demo_flag = demo_flag
 
     def observe_vicon(self, vicon_data):
         #get joint position for vicon
-        self.world_position =
+        self.world_position = vicon_data.position
 
     def observe_joints(self, state_data):
         #observe and parse current joint angles and torques
-        self.joint_angles =
-        self.joint_torques =
+        self.joint_angles = state_data.position
+        self.joint_torques = state_data.effort
 
-    def demonstration(self, demo_flag):
+    def demonstration(self):
         #store ground truth information from demo run
-        if demo_flag:
-            self.demo_positions =
-            self.demo_angles =
-            self.demo_torques =
+        self.demo['o'].append((self.joint_angles, self.joint_torques))
+        self.demo['s'].append(self.world_position)
 
-            #create mapping from s_t to o_t
-
-        else:
-            pass
+    def update_noise(self):
+        #update f noise function using Gaussian process regression
 
     def action_selection(self, demo_flag):
         #use decaying epsilon to select actions on each episode
