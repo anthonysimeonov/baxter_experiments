@@ -139,8 +139,7 @@ class Trajectory(object):
 
         #Episodal data
         self.number_actions_taken = 0
-        self.sum_q_
-import sklearnvalues = 0
+        self.sum_q_values = 0
         self.total_reward = 0
         self.time_per_episode = None
         self.step = 0
@@ -173,8 +172,8 @@ import sklearnvalues = 0
         self.demo['o'].append((self.joint_angles, self.joint_torques))
         self.demo['s'].append(self.world_position)
 
-    def update_noise(self):
-        #update f noise function using Gaussian process regression
+    # def update_noise(self):
+    #     #update f noise function using Gaussian process regression
 
     def action_selection(self, demo_flag):
         #use decaying epsilon to select actions on each episode
@@ -185,16 +184,12 @@ import sklearnvalues = 0
             #epsilon greedy
         return (action, Q_a)
 
-    def thresholding(self, demo_flag):
+    def thresholding(self, demo_flag, step):
         if demo_flag:
             pass
         else:
             #check if error is worth learning on
-
-            #get expected full observation from mapping
-
-            #compare to current full observation, if greater than threshold, perform Q-learning
-
+            err = self.demo['s'][step] - self.world_position
             return err
 
     def reward_function(self, demo_flag, err):
@@ -202,14 +197,15 @@ import sklearnvalues = 0
         if demo_flag:
             pass
         else:
-            #compare to ground truth to compute error, and update Q-functions
+            #update Q-function from past action
+            #give reward based on error
+            reward =
 
     def episodal_update(self, Q_a, done_flag):
         if done_flag:
             # increment episodal data
             self.sum_q_values += Q_a
             self.number_actions_taken += 1
-            self.total_reward +=
         else:
             #spit it out and reset everything
             return (self.sum_q_values, self.number_actions_taken, self.total_reward, rospy.Time.now())
@@ -501,4 +497,3 @@ Related examples:
 
 if __name__ == "__main__":
     main()
-RL
