@@ -193,28 +193,33 @@ class Trajectory(object):
                     action = self.shuffled_actions[self.shuffle_cnt]
                     self.shuffle_cnt += 1 
                     q_a = self.q_function[action](state)
+                # TODO: run a check if the selected action's "state'" is within bounds
             else:
                q_values = [self.q_function[i] for i in range(len(self.action_vector))]
                action = numpy.argmax(q_values)
                q_a = max(q_values) 
         return (action, q_a)
 
-    def thresholding(self, demo_flag, step):
+    def is_within_bounds(self, demo_flag, step):
         if demo_flag:
             pass
         else:
             #check if error is worth learning on
-            err = self.demo['s'][step] - self.world_position
-            return err
+            err = abs(self.demo['s'][step] - self.world_position)
+            if err > self.err_threshold:
+                return err
+            else:
+                return -1
 
     def reward_function(self, demo_flag, err):
         #given ground truth state and observed state
         if demo_flag:
             pass
         else:
-            #update Q-function from past action
             #give reward based on error
-            reward =
+            #            reward =
+            pass
+        return 
 
     def episodal_update(self, Q_a, done_flag):
         if done_flag:
