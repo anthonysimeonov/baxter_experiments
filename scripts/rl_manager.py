@@ -182,6 +182,7 @@ class Trajectory(object):
             pass
         else:
             #epsilon greedy
+            pass
         return (action, Q_a)
 
     def thresholding(self, demo_flag, step):
