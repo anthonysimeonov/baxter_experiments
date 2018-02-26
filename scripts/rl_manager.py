@@ -162,6 +162,7 @@ class Trajectory(object):
 
     def observe_vicon(self, vicon_data):
         #get joint position for vicon
+        #comes in as vicon_msgs.Subject, with fields position and rotation
         self.world_position = vicon_data.position
 
     def observe_joints(self, state_data):
@@ -173,9 +174,6 @@ class Trajectory(object):
         #store ground truth information from demo run
         self.demo['o'].append((self.joint_angles, self.joint_torques))
         self.demo['s'].append(self.world_position)
-
-    # def update_noise(self):
-    #     #update f noise function using Gaussian process regression
 
     def action_selection(self, demo_flag, state):
         #use decaying epsilon to select actions on each episode
@@ -191,20 +189,21 @@ class Trajectory(object):
                     q_a = self.q_function[action](state)
                 else:
                     action = self.shuffled_actions[self.shuffle_cnt]
-                    self.shuffle_cnt += 1 
+                    self.shuffle_cnt += 1
                     q_a = self.q_function[action](state)
                 # TODO: run a check if the selected action's "state'" is within bounds
             else:
                q_values = [self.q_function[i] for i in range(len(self.action_vector))]
                action = numpy.argmax(q_values)
-               q_a = max(q_values) 
+               q_a = max(q_values)
         return (action, q_a)
 
     def is_within_bounds(self, demo_flag, step):
-        if demo_flag:
+        if demo_flag:  #do nothing on demonstration
             pass
         else:
             #check if error is worth learning on
+            #difference between ground truth world frame position and current world frame position
             err = abs(self.demo['s'][step] - self.world_position)
             if err > self.err_threshold:
                 return err
@@ -212,26 +211,30 @@ class Trajectory(object):
                 return -1
 
     def reward_function(self, demo_flag, err):
-        #given ground truth state and observed state
-        if demo_flag:
+        #given ground truth state and observed state, calculate reward and update q-functions
+        #only called when err is above particular threshold
+        if demo_flag: #do nothing on demonstration
             pass
         else:
             #give reward based on error
             #            reward =
             pass
-        return 
+        return
 
     def episodal_update(self, Q_a, done_flag):
-        if done_flag:
+        #throughout a particular episode save values for post-analysis
+        #average sum of q-values and number of actions taken to determine average episodal q-value
+        if not done_flag:
             # increment episodal data
             self.sum_q_values += Q_a
             self.number_actions_taken += 1
         else:
             #spit it out and reset everything
-            return (self.sum_q_values, self.number_actions_taken, self.total_reward, rospy.Time.now())
+            episode_data = (self.sum_q_values, self.number_actions_taken, self.total_reward, rospy.Time.now())
             self.sum_q_values = 0
             self.number_actions_taken = 0
             self.total_reward = 0
+            return episode_data
 
             #anneal epsilon
 
