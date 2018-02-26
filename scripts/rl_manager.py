@@ -38,6 +38,8 @@ import threading
 from bisect import bisect
 from copy import copy
 from os import path
+import random
+import numpy
 
 import rospy
 
@@ -132,7 +134,7 @@ class Trajectory(object):
     	self.timing_msg_time = std_msgs.Time()
 
         #RL attributes
-        self.Q_table = []
+        self.q_function = []
         self.action_vector = action_vector
         self.err_threshold = 0
         self.epsilon = 1
@@ -175,15 +177,27 @@ class Trajectory(object):
     # def update_noise(self):
     #     #update f noise function using Gaussian process regression
 
-    def action_selection(self, demo_flag):
+    def action_selection(self, demo_flag, state):
         #use decaying epsilon to select actions on each episode
         if demo_flag:
             #do nothing on demo run
             pass
         else:
             #epsilon greedy
-            pass
-        return (action, Q_a)
+            if random.random() < self.epsilon:
+                if self.shuffle_cnt + 1 == len(self.action_vector):
+                    self.shuffled_actions = random.shuffle(self.action_vector)
+                    action = self.shuffled_actions[0]
+                    q_a = self.q_function[action](state)
+                else:
+                    action = self.shuffled_actions[self.shuffle_cnt]
+                    self.shuffle_cnt += 1 
+                    q_a = self.q_function[action](state)
+            else:
+               q_values = [self.q_function[i] for i in range(len(self.action_vector))]
+               action = numpy.argmax(q_values)
+               q_a = max(q_values) 
+        return (action, q_a)
 
     def thresholding(self, demo_flag, step):
         if demo_flag:
@@ -451,8 +465,8 @@ def main():
     necessary to hit each trajectory point on time.
     """
     epilog = """
-Related examples:
-  joint_recorder.py; joint_position_file_playback.py.
+        Related examples:
+        joint_recorder.py; joint_position_file_playback.py.
     """
     arg_fmt = argparse.RawDescriptionHelpFormatter
     parser = argparse.ArgumentParser(formatter_class=arg_fmt,
@@ -470,11 +484,15 @@ Related examples:
     args = parser.parse_args(rospy.myargv()[1:])
 
     print("Initializing node... ")
-    rospy.init_node("rsdk_joint_trajectory_file_playback")
+    rospy.init_node("demonstration_based_q_learning")
     print("Getting robot state... ")
     rs = baxter_interface.RobotEnable(CHECK_VERSION)
     print("Enabling robot... ")
     rs.enable()
+    raw_input("\nReady to record a demonstration. Press Enter to begin...")
+
+
+
     print("Running. Ctrl-c to quit")
 
     traj = Trajectory()
