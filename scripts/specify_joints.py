@@ -1,12 +1,19 @@
 #!/usr/bin/env python
 import csv
 import numpy as np
+import sys
 
 record_list = []
 
-#initial filename, and joints we want to let move (ALWAYS INCLUDE TIME)
-record_file = 'test_overwrite'
-joint_keys = ['time', 'right_s1']
+#pass initial filename and joints to allow movement in command line
+record_file = str(sys.argv[1])
+moving_joints = []
+if len(sys.argv) > 2:
+    for i in range(2,len(sys.argv)):
+        moving_joints.append(str(sys.argv[i]))
+
+joint_keys = ['time'] + moving_joints
+
 
 # Read all data from the csv file.
 with open(record_file, 'rb') as b:
