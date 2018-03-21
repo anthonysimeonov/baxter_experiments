@@ -41,8 +41,6 @@ import threading
 from bisect import bisect
 from copy import copy
 from os import path
-import random
-import numpy
 
 import rospy
 
@@ -65,7 +63,13 @@ import sensor_msgs.msg as sensor_msgs
 import vicon.msg as vicon
 
 
-class ThresholdedTrajectory(object):
+class ThresholdedTrajectory(object, threshold):
+    '''
+    A thresholded trajectory playback class which keeps track of the error offset
+    between the current world state and the reference world state, and invokes RL
+    when it exceeds a set threshold
+    '''
+
     def __init__(self, action_vector, demo_flag):
         # create our action server clients
         self._left_client = actionlib.SimpleActionClient(
@@ -189,8 +193,7 @@ class ThresholdedTrajectory(object):
             err = abs(self.demo['s'][step] - self.world_position)
             if err > self.err_threshold:
                 return err
-            else:
-                return -1
+            return -1
 
     def publish_bool(self, trajectory_state):
         if trajectory_state:
@@ -406,11 +409,10 @@ class ThresholdedTrajectory(object):
         # verify result
         if all([l_finish, r_finish, l_result, r_result]):
             return True
-        else:
-            msg = ("Trajectory action failed or did not finish before "
-                   "timeout/interrupt.")
-            rospy.logwarn(msg)
-            return False
+        msg = ("Trajectory action failed or did not finish before "
+               "timeout/interrupt.")
+        rospy.logwarn(msg)
+        return False
 
 
 def main():
@@ -458,7 +460,7 @@ def main():
     # TODO find a better way of ending a demonstration
     print("Running. Ctrl-c to quit")
 
-    traj = Trajectory()
+    traj = ThresholdedTrajectory()
     traj.parse_file(path.expanduser(args.file))
     # for safe interrupt handling
     rospy.on_shutdown(traj.stop)
