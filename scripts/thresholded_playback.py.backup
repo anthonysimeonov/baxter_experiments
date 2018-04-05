@@ -27,10 +27,10 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 """
-Custom trajectory playback class which thresholds trajectory commands by comparing
-current world state with reference world state from demonstration trajectory and
-decides if the current goal should be sent to RLearner as input to optimize on or
-not...
+Custom trajectory playback class which thresholds trajectory commands by
+comparing current world state with reference world state from demonstration
+trajectory and decides if the current goal should be sent to RLearner as input
+to optimize on or not...
 """
 
 import argparse
@@ -51,10 +51,10 @@ from control_msgs.msg import (
     FollowJointTrajectoryGoal,
 )
 from trajectory_msgs.msg import (
-    JointTrajectoryPoint,
-)
+    JointTrajectoryPoint, )
 
 import baxter_interface
+import baxter_examples
 
 from baxter_interface import CHECK_VERSION
 
@@ -63,14 +63,15 @@ import sensor_msgs.msg as sensor_msgs
 import vicon.msg as vicon
 
 
-class ThresholdedTrajectory(object, threshold):
+class ThresholdedTrajectory(baxter_examples.Trajectory):
     '''
-    A thresholded trajectory playback class which keeps track of the error offset
-    between the current world state and the reference world state, and invokes RL
-    when it exceeds a set threshold
+    Child of Trajectory class modified to keep track of the error offset between
+    the current world state and the reference world state, and invokes RL when
+    it exceeds a set threshold
     '''
 
-    def __init__(self, action_vector, demo_flag):
+    def __init__(self, threshold, action_vector):
+        super(ThresholdedTrajectory, self).__init__()
         # create our action server clients
         self._left_client = actionlib.SimpleActionClient(
             'robot/limb/left/follow_joint_trajectory',
@@ -112,11 +113,11 @@ class ThresholdedTrajectory(object, threshold):
             self._l_gripper.reset()
         if self._r_gripper.error():
             self._r_gripper.reset()
-        if (not self._l_gripper.calibrated() and
-                self._l_gripper.type() != 'custom'):
+        if (not self._l_gripper.calibrated()
+                and self._l_gripper.type() != 'custom'):
             self._l_gripper.calibrate()
-        if (not self._r_gripper.calibrated() and
-                self._r_gripper.type() != 'custom'):
+        if (not self._r_gripper.calibrated()
+                and self._r_gripper.type() != 'custom'):
             self._r_gripper.calibrate()
 
         # gripper goal trajectories
@@ -156,8 +157,8 @@ class ThresholdedTrajectory(object, threshold):
         # observed and ground truth communication
         self.observation_sub = rospy.Subscriber(
             '/robot/joint_states', sensor_msgs.JointState, self.observe_joints)
-        self.vicon_sub = rospy.Subscriber(
-            '/vicon/j2_dim', vicon.Subject, self.observe_vicon)
+        self.vicon_sub = rospy.Subscriber('/vicon/j2_dim', vicon.Subject,
+                                          self.observe_vicon)
         self.joint_angles = None
         self.joint_torques = None
         self.world_position = None
@@ -213,8 +214,8 @@ class ThresholdedTrajectory(object, threshold):
         rate = rospy.Rate(self._gripper_rate)
         now_from_start = rospy.get_time() - start_time
         self.publish_bool(1)
-        while(now_from_start < end_time + (1.0 / self._gripper_rate) and
-              not rospy.is_shutdown()):
+        while (now_from_start < end_time + (1.0 / self._gripper_rate)
+               and not rospy.is_shutdown()):
             idx = bisect(pnt_times, now_from_start) - 1
             if self._r_gripper.type() != 'custom':
                 self._r_gripper.command_position(r_cmd[idx].positions[0])
@@ -233,11 +234,13 @@ class ThresholdedTrajectory(object, threshold):
         @return command: returns dictionary {joint: value} of valid commands
         @return line: returns list of current line values stripped of commas
         """
+
         def try_float(x):
             try:
                 return float(x)
             except ValueError:
                 return None
+
         # convert the line of strings to a float or None
         line = [try_float(x) for x in line.rstrip().split(',')]
         # zip the values with the joint names
@@ -246,7 +249,10 @@ class ThresholdedTrajectory(object, threshold):
         cleaned = [x for x in combined if x[1] is not None]
         # convert it to a dictionary with only valid commands
         command = dict(cleaned)
-        return (command, line,)
+        return (
+            command,
+            line,
+        )
 
     def _add_point(self, positions, side, time):
         """
@@ -321,11 +327,15 @@ class ThresholdedTrajectory(object, threshold):
                 # This ensures we move slowly to the starting point of the
                 # trajectory from the current pose - The user may have moved
                 # arm since recording
-                cur_cmd = [self._l_arm.joint_angle(
-                    jnt) for jnt in self._l_goal.trajectory.joint_names]
+                cur_cmd = [
+                    self._l_arm.joint_angle(jnt)
+                    for jnt in self._l_goal.trajectory.joint_names
+                ]
                 self._add_point(cur_cmd, 'left', 0.0)
-                cur_cmd = [self._r_arm.joint_angle(
-                    jnt) for jnt in self._r_goal.trajectory.joint_names]
+                cur_cmd = [
+                    self._r_arm.joint_angle(jnt)
+                    for jnt in self._r_goal.trajectory.joint_names
+                ]
                 self._add_point(cur_cmd, 'right', 0.0)
                 start_offset = find_start_offset(cmd)
                 # Gripper playback won't start until the starting movement's
@@ -397,9 +407,8 @@ class ThresholdedTrajectory(object, threshold):
         # total time trajectory expected for trajectory execution plus a buffer
         last_time = self._r_goal.trajectory.points[-1].time_from_start.to_sec()
         time_buffer = rospy.get_param(self._param_ns + 'goal_time', 0.0) + 1.5
-        timeout = rospy.Duration(self._slow_move_offset +
-                                 last_time +
-                                 time_buffer)
+        timeout = rospy.Duration(
+            self._slow_move_offset + last_time + time_buffer)
 
         l_finish = self._left_client.wait_for_result(timeout)
         r_finish = self._right_client.wait_for_result(timeout)
@@ -435,17 +444,20 @@ def main():
         joint_recorder.py; joint_position_file_playback.py.
     """
     arg_fmt = argparse.RawDescriptionHelpFormatter
-    parser = argparse.ArgumentParser(formatter_class=arg_fmt,
-                                     description=main.__doc__,
-                                     epilog=epilog)
+    parser = argparse.ArgumentParser(
+        formatter_class=arg_fmt, description=main.__doc__, epilog=epilog)
     parser.add_argument(
-        '-f', '--file', metavar='PATH', required=True,
-        help='path to input file'
-    )
+        '-f',
+        '--file',
+        metavar='PATH',
+        required=True,
+        help='path to input file')
     parser.add_argument(
-        '-l', '--loops', type=int, default=1,
-        help='number of playback loops. 0=infinite.'
-    )
+        '-l',
+        '--loops',
+        type=int,
+        default=1,
+        help='number of playback loops. 0=infinite.')
     # remove ROS args and filename (sys.arv[0]) for argparse
     args = parser.parse_args(rospy.myargv()[1:])
 
@@ -457,7 +469,6 @@ def main():
     rs.enable()
     raw_input("\nReady to record a demonstration. Press Enter to begin...")
 
-    # TODO find a better way of ending a demonstration
     print("Running. Ctrl-c to quit")
 
     traj = ThresholdedTrajectory()
@@ -472,7 +483,10 @@ def main():
         loopstr = "forever"
     while (result == True and loop_cnt <= args.loops
            and not rospy.is_shutdown()):
-        print("Playback loop %d of %s" % (loop_cnt, loopstr,))
+        print("Playback loop %d of %s" % (
+            loop_cnt,
+            loopstr,
+        ))
         traj.start()
         result = traj.wait()
         traj.publish_bool(0)
