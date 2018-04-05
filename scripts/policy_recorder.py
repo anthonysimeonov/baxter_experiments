@@ -20,6 +20,8 @@ import baxter_examples
 import baxter_interface
 import rospy
 
+import geometry_msgs.msg as geometry_msgs
+
 TEMP_FILE = '/.ros/temp_demo_baxter'
 
 
@@ -27,7 +29,7 @@ class ViconRecorder(baxter_examples.JointRecorder):
     '''
     Class inherited from JointRecorder modified to launch record() in a separate
     thread. record() also runs in two separate modes now: the guided by human
-    user mode and the autonomous mode where the trajectory is replayed and 
+    user mode and the autonomous mode where the trajectory is replayed and
     corresponding vicon readings are recorded.
     '''
 
@@ -38,9 +40,13 @@ class ViconRecorder(baxter_examples.JointRecorder):
         self._joint_filename = filename
 
         # TODO make a list of vicon joint names
-        self.joints_vicon = []
+        self.joints_vicon = ['j%d_x' % i, 'j%d_y', % i, 'j%d_z', % i for i in range(1,8)]
+
+        #initialize world frame (x, y, z) position of vicon joints
+        self.pose_vicon = [[]]*len(self.joints_vicon)
+
         # TODO define vicon subscribers ( starting with 1D case)
-        # self.vicon_j1 =
+        self.vicon_j1_sub = rospy.Subscriber('vicon/j1_dim/pose', geometry_msgs.PoseStamped, self.j1_handler)
         # self.vicon_j2 =
         # ...j3
         # ...j4
@@ -50,6 +56,18 @@ class ViconRecorder(baxter_examples.JointRecorder):
         Resets the done parameter for consequetive recording sessions
         '''
         self._done = False
+
+    def j1_handler(self, data):
+        '''
+        vicon/j1_dim/pose subscriber callback function:
+
+        Maps data from subscriber to [x, y, z] entry self.pose_vicon
+        with corresponding index
+
+        Index 0 for j1
+        '''
+        self.pose_vicon[0] = [data.pose.position.x, data.pose.position.y, data.pose.position.z]
+
 
     def record_joint_demo(self):
         '''
@@ -66,7 +84,9 @@ class ViconRecorder(baxter_examples.JointRecorder):
                 f.write('left_gripper,')
                 f.write(','.join([j for j in joints_right]) + ',')
                 f.write('right_gripper,')
-                f.write(','.join([j for j in self.joints_vicon]) + '\n')
+                f.write(','.join([j for j in self.joints_vicon]) + ',')
+                for j_ind in range(1,8):
+                    f.write(','.join([j for j in self.joints_vicon[j_ind]]) + ',')
 
                 while not self.done():
                     # Look for gripper button presses
@@ -96,6 +116,8 @@ class ViconRecorder(baxter_examples.JointRecorder):
                     f.write(str(self._gripper_right.position()) + '\n')
 
                     # TODO write the extracted data from line number 82 to file
+                    for j_idx in range(len(self.joints_vicon)):
+                        f.write()
 
                     self._rate.sleep()
 
