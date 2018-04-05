@@ -188,6 +188,7 @@ Related examples:
         ))
         joint_recorder.start()
         result = joint_recorder.wait()
+        joint_recorder.recorder.stop()
     print("Exiting - Demo Recording Complete")
 
 
