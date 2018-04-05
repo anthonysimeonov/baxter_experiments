@@ -85,8 +85,8 @@ class ViconRecorder(baxter_examples.JointRecorder):
                 f.write(','.join([j for j in joints_right]) + ',')
                 f.write('right_gripper,')
                 f.write(','.join([j for j in self.joints_vicon]) + ',')
-                for j_ind in range(1,8):
-                    f.write(','.join([j for j in self.joints_vicon[j_ind]]) + ',')
+                for i_ind in range(len(self.joints_vicon)):
+                    f.write(','.join([j for j in self.joints_vicon[i_ind]]) + ',')
 
                 while not self.done():
                     # Look for gripper button presses
@@ -117,7 +117,7 @@ class ViconRecorder(baxter_examples.JointRecorder):
 
                     # TODO write the extracted data from line number 82 to file
                     for j_idx in range(len(self.joints_vicon)):
-                        f.write()
+                        f.write(','.join([str(x) for x in self.pose_vicon[j_idx]]) + ',')
 
                     self._rate.sleep()
 
