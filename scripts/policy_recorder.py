@@ -39,13 +39,12 @@ class ViconRecorder(baxter_examples.JointRecorder):
         self._filename = TEMP_FILE
         self._joint_filename = filename
 
-        # TODO make a list of vicon joint names
         self.joints_vicon = ['j%d_x' % i, 'j%d_y', % i, 'j%d_z', % i for i in range(1,8)]
 
         #initialize world frame (x, y, z) position of vicon joints
         self.pose_vicon = [[]]*len(self.joints_vicon)
 
-        # TODO define vicon subscribers ( starting with 1D case)
+        # TODO make vicon subscribers more compact
         self.vicon_j1_sub = rospy.Subscriber('vicon/j1_dim/pose', geometry_msgs.PoseStamped, self.j1_handler)
         # self.vicon_j2 =
         # ...j3
@@ -83,10 +82,10 @@ class ViconRecorder(baxter_examples.JointRecorder):
                 f.write(','.join([j for j in joints_left]) + ',')
                 f.write('left_gripper,')
                 f.write(','.join([j for j in joints_right]) + ',')
-                f.write('right_gripper,')
-                f.write(','.join([j for j in self.joints_vicon]) + ',')
+                f.write('right_gripper')  #note comma change
                 for i_ind in range(len(self.joints_vicon)):
-                    f.write(','.join([j for j in self.joints_vicon[i_ind]]) + ',')
+                    f.write(',' + ','.join([j for j in self.joints_vicon[i_ind]]))
+                f.write('\n')
 
                 while not self.done():
                     # Look for gripper button presses
@@ -105,7 +104,6 @@ class ViconRecorder(baxter_examples.JointRecorder):
                         self._limb_right.joint_angle(j) for j in joints_right
                     ]
 
-                    # TODO extract all vicon joint data from vicon subscribers
 
                     f.write("%f," % (self._time_stamp(), ))
 
@@ -113,11 +111,11 @@ class ViconRecorder(baxter_examples.JointRecorder):
                     f.write(str(self._gripper_left.position()) + ',')
 
                     f.write(','.join([str(x) for x in angles_right]) + ',')
-                    f.write(str(self._gripper_right.position()) + '\n')
+                    f.write(str(self._gripper_right.position()))  #note comma change
 
-                    # TODO write the extracted data from line number 82 to file
-                    for j_idx in range(len(self.joints_vicon)):
-                        f.write(','.join([str(x) for x in self.pose_vicon[j_idx]]) + ',')
+                    for i_ind in range(len(self.joints_vicon)):
+                        f.write(',' + ','.join([str(x) for x in self.pose_vicon[i_ind]]))
+                    f.write('\n')
 
                     self._rate.sleep()
 
@@ -196,10 +194,9 @@ Related examples:
         " recording will begin in...")
     for i in xrange(5):
         rospy.sleep(1.)
-        print("{0} seconds...".format(5 - i))
+        print("%d seconds..." % (5 - i))
     print("Starting joint recording...")
 
-    # TODO run the joint_recorder's execution routine, and invoke the recorder's
     # record routine in sync
     joint_recorder.recorder.reset()
     result = True
