@@ -16,7 +16,7 @@ import argparse
 import threading
 from os import path
 
-import baxter_examples
+from baxter_experiments.joint_trajectory import Trajectory
 import baxter_interface
 import rospy
 
