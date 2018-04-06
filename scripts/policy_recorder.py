@@ -78,7 +78,7 @@ class ViconRecorder(baxter_examples.JointRecorder):
         if self._joint_filename:
             joints_left = self._limb_left.joint_names()
             joints_right = self._limb_right.joint_names()
-            with open(self._filename, 'w') as f:
+            with open(self._joint_filename, 'w') as f:
                 f.write('time,')
                 f.write(','.join([j for j in joints_left]) + ',')
                 f.write('left_gripper,')
@@ -191,7 +191,6 @@ Related examples:
     process.start()
     raw_input("Recording. Press <Enter> to stop.")
     joint_recorder.recorder.stop()
-    joint_recorder.parse_file(path.expanduser(TEMP_FILE))
 
     print(
         "\nDone recording. The program will now playback the whole demonstra"
@@ -201,18 +200,13 @@ Related examples:
         rospy.sleep(1.)
         print("%d seconds..." % (5 - i))
     print("Starting joint recording...")
+    joint_recorder.parse_file(path.expanduser(TEMP_FILE))
 
     # record routine in sync
     joint_recorder.recorder.reset()
-    result = True
-    while (result == True and not rospy.is_shutdown()):
-        print("Playback loop %d of %s" % (
-            loop_cnt,
-            loopstr,
-        ))
-        joint_recorder.start()
-        result = joint_recorder.wait()
-        joint_recorder.recorder.stop()
+    joint_recorder.start()
+    result = joint_recorder.wait()
+    joint_recorder.recorder.stop()
     print("Exiting - Demo Recording Complete")
 
 
