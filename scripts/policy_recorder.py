@@ -17,6 +17,7 @@ import threading
 from os import path
 
 from baxter_experiments.joint_trajectory import Trajectory
+import baxter_examples
 import baxter_interface
 import rospy
 
