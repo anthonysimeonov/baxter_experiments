@@ -39,13 +39,13 @@ class ViconRecorder(baxter_examples.JointRecorder):
         self._filename = TEMP_FILE
         self._joint_filename = filename
 
-        self.joints_vicon = ['j%d_x' % i, 'j%d_y', % i, 'j%d_z', % i for i in range(1,8)]
+        self.joints_vicon = [['j%d_x' % i, 'j%d_y' % i, 'j%d_z' % i] for i in range(1)]
 
         #initialize world frame (x, y, z) position of vicon joints
-        self.pose_vicon = [[]]*len(self.joints_vicon)
+        self.pose_vicon = [[-100, -100, -100]]*len(self.joints_vicon)
 
         # TODO make vicon subscribers more compact
-        self.vicon_j1_sub = rospy.Subscriber('vicon/j1_dim/pose', geometry_msgs.PoseStamped, self.j1_handler)
+        # self.vicon_j1_sub = rospy.Subscriber('vicon/j1_dim/pose', geometry_msgs.PoseStamped, self.j1_handler)
         # self.vicon_j2 =
         # ...j3
         # ...j4
