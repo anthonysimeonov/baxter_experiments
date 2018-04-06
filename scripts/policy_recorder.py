@@ -23,7 +23,7 @@ import rospy
 
 import geometry_msgs.msg as geometry_msgs
 
-TEMP_FILE = '/.ros/temp_demo_baxter'
+TEMP_FILE = '/home/anthony/.ros/temp_demo_baxter'
 
 
 class ViconRecorder(baxter_examples.JointRecorder):
@@ -129,7 +129,7 @@ class JointDemoRecorder(Trajectory):
 
     def __init__(self, filename, rate):
         super(JointDemoRecorder, self).__init__()
-        recorder = ViconRecorder(filename, rate)
+        self.recorder = ViconRecorder(filename, rate)
 
     def start(self):
         """
@@ -184,7 +184,9 @@ Related examples:
 
     joint_recorder = JointDemoRecorder(args.filename, args.record_rate)
 
-    threading.Thread(target=joint_recorder.recorder.record())
+    process = threading.Thread(target=joint_recorder.recorder.record)
+    process.daemon = True
+    process.start()
     raw_input("Recording. Press <Enter> to stop.")
     joint_recorder.recorder.stop()
     joint_recorder.parse_file(path.expanduser(TEMP_FILE))
