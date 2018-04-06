@@ -140,7 +140,9 @@ class JointDemoRecorder(Trajectory):
         # Syncronize playback by waiting for the trajectories to start
         while not rospy.is_shutdown() and not self._get_trajectory_flag():
             rospy.sleep(0.05)
-        threading.Thread(target=self.recorder.record_joint_demo())
+        process = threading.Thread(target=self.recorder.record_joint_demo)
+        process.daemon = True
+        process.start()
         self._execute_gripper_commands()
 
 
