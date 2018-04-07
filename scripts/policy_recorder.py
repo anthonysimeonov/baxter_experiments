@@ -17,12 +17,13 @@ import threading
 from os import path
 
 from baxter_experiments.joint_trajectory import Trajectory
+import baxter_examples
 import baxter_interface
 import rospy
 
 import geometry_msgs.msg as geometry_msgs
 
-TEMP_FILE = '/.ros/temp_demo_baxter'
+TEMP_FILE = '/home/anthony/.ros/temp_demo_baxter'
 
 
 class ViconRecorder(baxter_examples.JointRecorder):
@@ -39,13 +40,13 @@ class ViconRecorder(baxter_examples.JointRecorder):
         self._filename = TEMP_FILE
         self._joint_filename = filename
 
-        self.joints_vicon = ['j%d_x' % i, 'j%d_y', % i, 'j%d_z', % i for i in range(1,8)]
+        self.joints_vicon = [['j%d_x' % i, 'j%d_y' % i, 'j%d_z' % i] for i in range(1)]
 
         #initialize world frame (x, y, z) position of vicon joints
-        self.pose_vicon = [[]]*len(self.joints_vicon)
+        self.pose_vicon = [[-100, -100, -100]]*len(self.joints_vicon)
 
         # TODO make vicon subscribers more compact
-        self.vicon_j1_sub = rospy.Subscriber('vicon/j1_dim/pose', geometry_msgs.PoseStamped, self.j1_handler)
+        # self.vicon_j1_sub = rospy.Subscriber('vicon/j1_dim/pose', geometry_msgs.PoseStamped, self.j1_handler)
         # self.vicon_j2 =
         # ...j3
         # ...j4
@@ -77,7 +78,7 @@ class ViconRecorder(baxter_examples.JointRecorder):
         if self._joint_filename:
             joints_left = self._limb_left.joint_names()
             joints_right = self._limb_right.joint_names()
-            with open(self._filename, 'w') as f:
+            with open(self._joint_filename, 'w') as f:
                 f.write('time,')
                 f.write(','.join([j for j in joints_left]) + ',')
                 f.write('left_gripper,')
@@ -128,7 +129,7 @@ class JointDemoRecorder(Trajectory):
 
     def __init__(self, filename, rate):
         super(JointDemoRecorder, self).__init__()
-        recorder = ViconRecorder(filename, rate)
+        self.recorder = ViconRecorder(filename, rate)
 
     def start(self):
         """
@@ -139,7 +140,9 @@ class JointDemoRecorder(Trajectory):
         # Syncronize playback by waiting for the trajectories to start
         while not rospy.is_shutdown() and not self._get_trajectory_flag():
             rospy.sleep(0.05)
-        threading.Thread(target=self.recorder.record_joint_demo())
+        process = threading.Thread(target=self.recorder.record_joint_demo)
+        process.daemon = True
+        process.start()
         self._execute_gripper_commands()
 
 
@@ -183,10 +186,11 @@ Related examples:
 
     joint_recorder = JointDemoRecorder(args.filename, args.record_rate)
 
-    threading.Thread(target=joint_recorder.recorder.record())
+    process = threading.Thread(target=joint_recorder.recorder.record)
+    process.daemon = True
+    process.start()
     raw_input("Recording. Press <Enter> to stop.")
     joint_recorder.recorder.stop()
-    joint_recorder.parse_file(path.expanduser(TEMP_FILE))
 
     print(
         "\nDone recording. The program will now playback the whole demonstra"
@@ -196,18 +200,13 @@ Related examples:
         rospy.sleep(1.)
         print("%d seconds..." % (5 - i))
     print("Starting joint recording...")
+    joint_recorder.parse_file(path.expanduser(TEMP_FILE))
 
     # record routine in sync
     joint_recorder.recorder.reset()
-    result = True
-    while (result == True and not rospy.is_shutdown()):
-        print("Playback loop %d of %s" % (
-            loop_cnt,
-            loopstr,
-        ))
-        joint_recorder.start()
-        result = joint_recorder.wait()
-        joint_recorder.recorder.stop()
+    joint_recorder.start()
+    result = joint_recorder.wait()
+    joint_recorder.recorder.stop()
     print("Exiting - Demo Recording Complete")
 
 
