@@ -40,6 +40,7 @@ class RolloutExecuter(Trajectory):
 
         self.gazebo_sub = rospy.Subscriber('gazebo/link_states', gazebo_msgs.LinkStates, gazebo_callback)
         self.end_effector_pos = None
+        self.end_effector_desired = dict()
 
         #intermediay list of joint angles that will be popped and sent as goals
         self.r_goal_list = []
@@ -85,6 +86,42 @@ class RolloutExecuter(Trajectory):
             rate.sleep()
             now_from_start = rospy.get_time() - start_time
 
+    def _clean_line(self, line, joint_names, link_names):
+        """
+        Cleans a single line of recorded joint positions and world frame pose
+
+        @param line: the line described in a list to process
+        @param joint_names: joint name keys
+        @param link_names: link name keys
+
+        @return command: returns dictionary {joint: value} of valid commands
+        @return world: return dictionary {link: value} of end_eff poses
+        @return line: returns list of current line values (joint values) stripped of commas
+        """
+        def try_float(x):
+            try:
+                return float(x)
+            except ValueError:
+                return None
+        #convert the line of strings to a float or None
+        line = [try_float(x) for x in line.rstrip().split(',')]
+        line_joints = line[:len(joint_names)]
+        line_links = line[len(joint_names):]
+
+        #zip the values with the joint names
+        combined_joints = zip(joint_names[1:], line_joints[1:])
+        combined_links = zip(link_names, line_links)
+
+        #take out any tuples that have a none value
+        cleaned_joints = [x for x in combined_joints if x[1] is not None]
+        cleaned_links = [x for x in combined_links if x[1] is not None]
+
+        #convert it to a dictionary with only valid commands
+        command_joints = dict(cleaned_joints)
+        des_links = dict(cleaned_links)
+        return (command_joints, des_links, line_joints, line_links)
+
+
     def parse_file(self, filename):
         """
         Parses input file into FollowJointTrajectoryGoal format
@@ -97,13 +134,17 @@ class RolloutExecuter(Trajectory):
             lines = f.readlines()
         #read joint names specified in file
         joint_names = lines[0].rstrip().split(',')
+        link_names = []
         #parse joint names for the left and right limbs
         for name in joint_names:
             if 'left' == name[:-3]:
                 self._l_goal.trajectory.joint_names.append(name)
             elif 'right' == name[:-3]:
                 self._r_goal.trajectory.joint_names.append(name)
-            else
+            elif 'world' == name[:-3]:
+                self.end_effector_desired[name] = None
+                joint_names.remove(name)  #separate joint names from link names
+                link_names.append(name)
 
         def find_start_offset(pos):
             #create empty lists
@@ -124,9 +165,7 @@ class RolloutExecuter(Trajectory):
                     cur.append(self._r_arm.joint_angle(name))
                     prm = rospy.get_param(vel_param % name, 0.25)
                     dflt_vel.append(prm)
-                #for world frame data there will be no right/left
-                elif ''
-                    #TODO read in the world frame data to an attribute
+
 
             diffs = map(operator.sub, cmd, cur)
             diffs = map(operator.abs, diffs)
@@ -136,7 +175,7 @@ class RolloutExecuter(Trajectory):
 
         for idx, values in enumerate(lines[1:]):
             #clean each line of file
-            cmd, values = self._clean_line(values, joint_names)
+            cmd, values = self._clean_line(values, joint_names, link_names)
             #find allowable time offset for move to start position
             if idx == 0:
                 # Set the initial position to be the current pose.
@@ -163,6 +202,12 @@ class RolloutExecuter(Trajectory):
             self._add_point(cur_cmd, 'right_gripper', values[0] + start_offset)
 
         def make_local_goal(self, k):
+            """
+            Makes a local trajectory action requst goal based on
+            the k and k+1 indices in the overall goal list
+
+            @parak k: index of start point in the overall list of points
+            """
             self.local_goal_r = FollowJointTrajectoryGoal()
             self.local_goal_l = FollowJointTrajectoryGoal()
 
@@ -177,9 +222,73 @@ class RolloutExecuter(Trajectory):
 
             @param r/l_goal_k: input single trajectory goal at k index from _r/l_goal.trajectory.points
             """
-            self._left_client.send_goal(self._l_goal, feedback_cb=self._feedback)
-            self._right_client.send_goal(self._r_goal, feedback_cb=self._feedback)
+            self._left_client.send_goal(self.local_goal_l, feedback_cb=self._feedback)
+            self._right_client.send_goal(self.local_goal_r, feedback_cb=self._feedback)
             # Syncronize playback by waiting for the trajectories to start
             while not rospy.is_shutdown() and not self._get_trajectory_flag():
                 rospy.sleep(0.05)
-            self._execute_gripper_commands()
+            # self._execute_gripper_commands()
+
+def main():
+    """RSDK Joint Trajectory Example: File Playback
+
+    Plays back joint positions honoring timestamps recorded
+    via the joint_recorder example.
+
+    Run the joint_recorder.py example first to create a recording
+    file for use with this example. Then make sure to start the
+    joint_trajectory_action_server before running this example.
+
+    This example will use the joint trajectory action server
+    with velocity control to follow the positions and times of
+    the recorded motion, accurately replicating movement speed
+    necessary to hit each trajectory point on time.
+    """
+    epilog = """
+Related examples:
+  joint_recorder.py; joint_position_file_playback.py.
+    """
+    arg_fmt = argparse.RawDescriptionHelpFormatter
+    parser = argparse.ArgumentParser(formatter_class=arg_fmt,
+                                     description=main.__doc__,
+                                     epilog=epilog)
+    parser.add_argument(
+        '-f', '--file', metavar='PATH', required=True,
+        help='path to input file'
+    )
+    parser.add_argument(
+        '-l', '--loops', type=int, default=1,
+        help='number of playback loops. 0=infinite.'
+    )
+    # remove ROS args and filename (sys.arv[0]) for argparse
+    args = parser.parse_args(rospy.myargv()[1:])
+
+    print("Initializing node... ")
+    rospy.init_node("rsdk_joint_trajectory_file_playback")
+    print("Getting robot state... ")
+    rs = baxter_interface.RobotEnable(CHECK_VERSION)
+    print("Enabling robot... ")
+    rs.enable()
+    print("Running. Ctrl-c to quit")
+
+    traj = Trajectory()
+    traj.parse_file(path.expanduser(args.file))
+    #for safe interrupt handling
+    rospy.on_shutdown(traj.stop)
+    result = True
+    loop_cnt = 1
+    loopstr = str(args.loops)
+    if args.loops == 0:
+        args.loops = float('inf')
+        loopstr = "forever"
+    while (result == True and loop_cnt <= args.loops
+           and not rospy.is_shutdown()):
+        print("Playback loop %d of %s" % (loop_cnt, loopstr,))
+        traj.start()
+        result = traj.wait()
+        traj.publish_bool(0)
+        loop_cnt = loop_cnt + 1
+    print("Exiting - File Playback Complete")
+
+if __name__ == "__main__":
+    main()
