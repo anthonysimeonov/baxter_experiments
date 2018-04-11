@@ -12,14 +12,36 @@
 """
 
 from __future__ import print_function
+
 import argparse
+import operator
+import sys
 import threading
+
+from bisect import bisect
+from copy import copy
 from os import path
+
+import rospy
+
+import actionlib
+
+from control_msgs.msg import (
+    FollowJointTrajectoryAction,
+    FollowJointTrajectoryGoal,
+)
+from trajectory_msgs.msg import (
+    JointTrajectoryPoint,
+)
+
+import std_msgs.msg as std_msgs
 
 from baxter_experiments.joint_trajectory import Trajectory
 import baxter_examples
 import baxter_interface
 import rospy
+
+from baxter_interface import CHECK_VERSION
 
 import geometry_msgs.msg as geometry_msgs
 import gazebo_msgs.msg as gazebo_msgs
@@ -34,11 +56,12 @@ class RolloutExecuter(Trajectory):
     - computes an additive "action" for the robot to take and sends that to the controllers
     '''
 
-    def __init__(self, ):
+    def __init__(self, debug=False):
         #TODO add initialization args
         super(RolloutExecuter, self).__init__()
+        self.debug = debug
 
-        self.gazebo_sub = rospy.Subscriber('gazebo/link_states', gazebo_msgs.LinkStates, gazebo_callback)
+        self.gazebo_sub = rospy.Subscriber('gazebo/link_states', gazebo_msgs.LinkStates, self.gazebo_callback)
         self.end_effector_pos = None
         self.end_effector_desired = dict()
 
@@ -94,9 +117,10 @@ class RolloutExecuter(Trajectory):
         @param joint_names: joint name keys
         @param link_names: link name keys
 
-        @return command: returns dictionary {joint: value} of valid commands
-        @return world: return dictionary {link: value} of end_eff poses
-        @return line: returns list of current line values (joint values) stripped of commas
+        @return command_joints: returns dictionary {joint: value} of valid commands
+        @return world_links: return dictionary {link: value} of end_eff poses
+        @return line_joints: returns list of current line values (joint values) stripped of commas
+        @return line_links: returns list of current line values (link values)
         """
         def try_float(x):
             try:
@@ -118,8 +142,8 @@ class RolloutExecuter(Trajectory):
 
         #convert it to a dictionary with only valid commands
         command_joints = dict(cleaned_joints)
-        des_links = dict(cleaned_links)
-        return (command_joints, des_links, line_joints, line_links)
+        world_links = dict(cleaned_links)
+        return (command_joints, world_links, line_joints, line_links)
 
 
     def parse_file(self, filename):
@@ -129,6 +153,8 @@ class RolloutExecuter(Trajectory):
 
         @param filename: input filename
         """
+        if self.debug:
+            print("STARTING FILE PARSE\n")
         #open recorded file
         with open(filename, 'r') as f:
             lines = f.readlines()
@@ -141,10 +167,19 @@ class RolloutExecuter(Trajectory):
                 self._l_goal.trajectory.joint_names.append(name)
             elif 'right' == name[:-3]:
                 self._r_goal.trajectory.joint_names.append(name)
-            elif 'world' == name[:-3]:
-                self.end_effector_desired[name] = None
-                joint_names.remove(name)  #separate joint names from link names
+            elif 'j' == name[0]:
+                self.end_effector_desired[name] = []
+                # joint_names.remove(name)  #separate joint names from link names
                 link_names.append(name)
+        for link_ind in range(len(link_names)):
+            joint_names.pop(-1)
+        if self.debug:
+            print("joint names:\n")
+            print(joint_names)
+            print("\n")
+            print("link_names:\n")
+            print(link_names)
+            print("\n")
 
         def find_start_offset(pos):
             #create empty lists
@@ -154,7 +189,7 @@ class RolloutExecuter(Trajectory):
             vel_param = self._param_ns + "%s_default_velocity"
             #for all joints find our current and first commanded position
             #reading default velocities from the parameter server if specified
-            for name in joint_names[]:
+            for name in joint_names:
                 if 'left' == name[:-3]:
                     cmd.append(pos[name])
                     cur.append(self._l_arm.joint_angle(name))
@@ -175,7 +210,7 @@ class RolloutExecuter(Trajectory):
 
         for idx, values in enumerate(lines[1:]):
             #clean each line of file
-            cmd, values = self._clean_line(values, joint_names, link_names)
+            cmd, links, values_joints, values_links = self._clean_line(values, joint_names, link_names)
             #find allowable time offset for move to start position
             if idx == 0:
                 # Set the initial position to be the current pose.
@@ -190,44 +225,106 @@ class RolloutExecuter(Trajectory):
                 # Gripper playback won't start until the starting movement's
                 # duration has passed, and the actual trajectory playback begins
                 self._slow_move_offset = start_offset
-                self._trajectory_start_offset = rospy.Duration(start_offset + values[0])
+                self._trajectory_start_offset = rospy.Duration(start_offset + values_joints[0])
             #add a point for this set of commands with recorded time
             cur_cmd = [cmd[jnt] for jnt in self._l_goal.trajectory.joint_names]
-            self._add_point(cur_cmd, 'left', values[0] + start_offset)
+            self._add_point(cur_cmd, 'left', values_joints[0] + start_offset)
             cur_cmd = [cmd[jnt] for jnt in self._r_goal.trajectory.joint_names]
-            self._add_point(cur_cmd, 'right', values[0] + start_offset)
+            self._add_point(cur_cmd, 'right', values_joints[0] + start_offset)
             cur_cmd = [cmd['left_gripper']]
-            self._add_point(cur_cmd, 'left_gripper', values[0] + start_offset)
+            self._add_point(cur_cmd, 'left_gripper', values_joints[0] + start_offset)
             cur_cmd = [cmd['right_gripper']]
-            self._add_point(cur_cmd, 'right_gripper', values[0] + start_offset)
+            self._add_point(cur_cmd, 'right_gripper', values_joints[0] + start_offset)
 
-        def make_local_goal(self, k):
-            """
-            Makes a local trajectory action requst goal based on
-            the k and k+1 indices in the overall goal list
+            #add the world frame poses
+            for key in links.keys():
+                self.end_effector_desired[key].append(links[key])
 
-            @parak k: index of start point in the overall list of points
-            """
-            self.local_goal_r = FollowJointTrajectoryGoal()
-            self.local_goal_l = FollowJointTrajectoryGoal()
-
-            for i in range(2):
-                self.local_goal_r.trajectory.points.append(self._r_goal.trajectory.points[k+i])
-                self.local_goal_l.trajectory.points.append(self._l_goal.trajectory.points[k+i])
+        if self.debug:
+            print("---------------------\n")
+            print("Desired world frame dict, parsed from file:\n")
+            print(self.end_effector_desired.keys())
+            print("---------------------\n")
 
 
-        def send_goal(self, r_goal_k, l_goal_k):
-            """
-            Sends FollowJointTrajectoryAction request
+    def make_local_goal(self, k):
+        """
+        Makes a local trajectory action requst goal based on
+        the k and k+1 indices in the overall goal list
 
-            @param r/l_goal_k: input single trajectory goal at k index from _r/l_goal.trajectory.points
-            """
-            self._left_client.send_goal(self.local_goal_l, feedback_cb=self._feedback)
-            self._right_client.send_goal(self.local_goal_r, feedback_cb=self._feedback)
-            # Syncronize playback by waiting for the trajectories to start
-            while not rospy.is_shutdown() and not self._get_trajectory_flag():
-                rospy.sleep(0.05)
-            # self._execute_gripper_commands()
+        @parak k: index of start point in the overall list of points
+        """
+        self.local_goal_r = FollowJointTrajectoryGoal()
+        self.local_goal_l = FollowJointTrajectoryGoal()
+
+        for i in range(2):
+            self.local_goal_r.trajectory.points.append(self._r_goal.trajectory.points[k+i])
+            self.local_goal_l.trajectory.points.append(self._l_goal.trajectory.points[k+i])
+        print("goal made\n")
+
+    def wait(self):
+        """
+        Waits for and verifies trajectory execution result
+        """
+        #create a timeout for our trajectory execution
+        #total time trajectory expected for trajectory execution plus a buffer
+        last_time = self.local_goal_r.trajectory.points[-1].time_from_start.to_sec()
+        time_buffer = rospy.get_param(self._param_ns + 'goal_time', 0.0) + 1.5
+        timeout = rospy.Duration(self._slow_move_offset +
+                                 last_time +
+                                 time_buffer)
+        if self.debug:
+            print("last time:\n")
+            print(last_time)
+            print("\n")
+            print("time_buffer:\n")
+            print(time_buffer)
+            print("\n")
+            print("timeout:\n")
+            print(timeout)
+            print("\n")
+
+        l_finish = self._left_client.wait_for_result(timeout)
+        r_finish = self._right_client.wait_for_result(timeout)
+        l_result = (self._left_client.get_result().error_code == 0)
+        r_result = (self._right_client.get_result().error_code == 0)
+
+    def send_goal(self):
+        """
+        Sends FollowJointTrajectoryAction request
+
+        @param r/l_goal_k: input single trajectory goal at k index from _r/l_goal.trajectory.points
+        """
+        if self.debug:
+            print("goals:\n")
+            print(self.local_goal_r)
+            print("\n")
+        self._left_client.send_goal(self.local_goal_l)
+        self._right_client.send_goal(self.local_goal_r)
+        # Syncronize playback by waiting for the trajectories to start
+        print("goal sent\n")
+        # while not rospy.is_shutdown() and not self._get_trajectory_flag():
+        #     rospy.sleep(0.05)
+        #     print("waiting\n")
+        # self._execute_gripper_commands()
+
+    def goal_iteration(self):
+        """
+        Iterates through the whole list of goals in the trajectory request and
+        executes the trajectory in discrete 2 step sequences
+        """
+        print("Starting goal iteration\n")
+        for idx in range(len(self._r_goal.trajectory.points)-1):
+            result = False
+            while result == False:
+                self.make_local_goal(idx)
+                self.send_goal()
+                result = self.wait()
+                if idx % 100 == 0:
+                    print("100 points\n")
+        print("goal iteration complete\n")
+
+
 
 def main():
     """RSDK Joint Trajectory Example: File Playback
@@ -264,31 +361,32 @@ Related examples:
     args = parser.parse_args(rospy.myargv()[1:])
 
     print("Initializing node... ")
-    rospy.init_node("rsdk_joint_trajectory_file_playback")
+    rospy.init_node("rollout_execution")
     print("Getting robot state... ")
     rs = baxter_interface.RobotEnable(CHECK_VERSION)
     print("Enabling robot... ")
     rs.enable()
     print("Running. Ctrl-c to quit")
 
-    traj = Trajectory()
+    traj = RolloutExecuter(debug=True)
     traj.parse_file(path.expanduser(args.file))
     #for safe interrupt handling
     rospy.on_shutdown(traj.stop)
-    result = True
-    loop_cnt = 1
-    loopstr = str(args.loops)
-    if args.loops == 0:
-        args.loops = float('inf')
-        loopstr = "forever"
-    while (result == True and loop_cnt <= args.loops
-           and not rospy.is_shutdown()):
-        print("Playback loop %d of %s" % (loop_cnt, loopstr,))
-        traj.start()
-        result = traj.wait()
-        traj.publish_bool(0)
-        loop_cnt = loop_cnt + 1
-    print("Exiting - File Playback Complete")
+    traj.goal_iteration()
+    # result = True
+    # loop_cnt = 1
+    # loopstr = str(args.loops)
+    # if args.loops == 0:
+    #     args.loops = float('inf')
+    #     loopstr = "forever"
+    # while (result == True and loop_cnt <= args.loops
+    #        and not rospy.is_shutdown()):
+    #     print("Playback loop %d of %s" % (loop_cnt, loopstr,))
+    #     traj.start()
+    #     result = traj.wait()
+    #     traj.publish_bool(0)
+    #     loop_cnt = loop_cnt + 1
+    # print("Exiting - File Playback Complete")
 
 if __name__ == "__main__":
     main()
