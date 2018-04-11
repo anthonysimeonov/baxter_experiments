@@ -246,20 +246,32 @@ class RolloutExecuter(Trajectory):
             print(self.end_effector_desired.keys())
             print("---------------------\n")
 
-
-    def make_local_goal(self, k):
+    def make_local_goal(self, k, goal_type='API'):
         """
         Makes a local trajectory action requst goal based on
         the k and k+1 indices in the overall goal list
 
         @parak k: index of start point in the overall list of points
         """
-        self.local_goal_r = FollowJointTrajectoryGoal()
-        self.local_goal_l = FollowJointTrajectoryGoal()
+        if goal_type == 'API':
+            self.local_goal_r = dict(zip(
+                    self._r_goal.trajectory.joint_names,
+                    self._r_goal.trajectory.points[k].positions))
 
-        for i in range(2):
-            self.local_goal_r.trajectory.points.append(self._r_goal.trajectory.points[k+i])
-            self.local_goal_l.trajectory.points.append(self._l_goal.trajectory.points[k+i])
+            self.local_goal_l = dict(zip(
+                    self._l_goal.trajectory.joint_names,
+                    self._l_goal.trajectory.points[k].positions))
+
+        elif goal_type == 'trajectory':
+            self.local_goal_r = FollowJointTrajectoryGoal()
+            self.local_goal_l = FollowJointTrajectoryGoal()
+
+            self.local_goal_r.trajectory.joint_names = self._r_goal.trajectory.joint_names
+            self.local_goal_l.trajectory.joint_names = self._l_goal.trajectory.joint_names
+
+            for i in range(2):
+                self.local_goal_r.trajectory.points.append(self._r_goal.trajectory.points[k+i])
+                self.local_goal_l.trajectory.points.append(self._l_goal.trajectory.points[k+i])
         print("goal made\n")
 
     def wait(self):
@@ -288,8 +300,16 @@ class RolloutExecuter(Trajectory):
         r_finish = self._right_client.wait_for_result(timeout)
         l_result = (self._left_client.get_result().error_code == 0)
         r_result = (self._right_client.get_result().error_code == 0)
+        #verify result
+        if all([l_finish, r_finish, l_result, r_result]):
+            return True
+        else:
+            msg = ("Trajectory action failed or did not finish before "
+                   "timeout/interrupt.")
+            rospy.logwarn(msg)
+            return False
 
-    def send_goal(self):
+    def send_goal(self, goal_type='API'):
         """
         Sends FollowJointTrajectoryAction request
 
@@ -297,10 +317,18 @@ class RolloutExecuter(Trajectory):
         """
         if self.debug:
             print("goals:\n")
+            # print(self._r_goal)
+            print("\n-----------------------------\n")
             print(self.local_goal_r)
             print("\n")
-        self._left_client.send_goal(self.local_goal_l)
-        self._right_client.send_goal(self.local_goal_r)
+        if goal_type == 'API':
+            self._l_arm.move_to_joint_positions(self.local_goal_l)
+            self._r_arm.move_to_joint_positions(self.local_goal_r)
+
+        elif goal_type == 'trajectory':
+            self._left_client.send_goal(self.local_goal_l, feedback_cb=self._feedback)
+            self._right_client.send_goal(self.local_goal_r, feedback_cb=self._feedback)
+
         # Syncronize playback by waiting for the trajectories to start
         print("goal sent\n")
         # while not rospy.is_shutdown() and not self._get_trajectory_flag():
@@ -315,12 +343,14 @@ class RolloutExecuter(Trajectory):
         """
         print("Starting goal iteration\n")
         for idx in range(len(self._r_goal.trajectory.points)-1):
-            result = False
-            while result == False:
-                self.make_local_goal(idx)
-                self.send_goal()
-                result = self.wait()
-                if idx % 100 == 0:
+            # result = False
+            # while result == False:
+            #     self.make_local_goal(idx)
+            #     self.send_goal()
+            #     result = self.wait()
+            self.make_local_goal(idx)
+            self.send_goal()
+            if idx % 100 == 0:
                     print("100 points\n")
         print("goal iteration complete\n")
 
