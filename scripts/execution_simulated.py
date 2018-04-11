@@ -90,25 +90,6 @@ class RolloutExecuter(Trajectory):
         self.timing_pub_state.publish(self.timing_msg_state)
         self.timing_pub_time.publish(self.timing_msg_time)
 
-    def _execute_gripper_commands(self):
-        start_time = rospy.get_time() - self._trajectory_actual_offset.to_sec()
-        r_cmd = self._r_grip.trajectory.points
-        l_cmd = self._l_grip.trajectory.points
-        pnt_times = [pnt.time_from_start.to_sec() for pnt in r_cmd]
-        end_time = pnt_times[-1]
-        rate = rospy.Rate(self._gripper_rate)
-        now_from_start = rospy.get_time() - start_time
-        self.publish_bool(1)
-        while(now_from_start < end_time + (1.0 / self._gripper_rate) and
-              not rospy.is_shutdown()):
-            idx = bisect(pnt_times, now_from_start) - 1
-            if self._r_gripper.type() != 'custom':
-                self._r_gripper.command_position(r_cmd[idx].positions[0])
-            if self._l_gripper.type() != 'custom':
-                self._l_gripper.command_position(l_cmd[idx].positions[0])
-            rate.sleep()
-            now_from_start = rospy.get_time() - start_time
-
     def _clean_line(self, line, joint_names, link_names):
         """
         Cleans a single line of recorded joint positions and world frame pose
@@ -403,6 +384,7 @@ Related examples:
     #for safe interrupt handling
     rospy.on_shutdown(traj.stop)
     traj.goal_iteration()
+
     # result = True
     # loop_cnt = 1
     # loopstr = str(args.loops)
@@ -416,7 +398,7 @@ Related examples:
     #     result = traj.wait()
     #     traj.publish_bool(0)
     #     loop_cnt = loop_cnt + 1
-    # print("Exiting - File Playback Complete")
+    print("Exiting - File Playback Complete")
 
 if __name__ == "__main__":
     main()
