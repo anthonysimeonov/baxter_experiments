@@ -23,7 +23,7 @@ import rospy
 
 import geometry_msgs.msg as geometry_msgs
 
-TEMP_FILE = '/home/anthony/.ros/temp_demo_baxter'
+TEMP_FILE = '~/.ros/temp_demo_baxter'
 
 
 class ViconRecorder(baxter_examples.JointRecorder):
@@ -37,7 +37,7 @@ class ViconRecorder(baxter_examples.JointRecorder):
     def __init__(self, filename, rate):
         super(ViconRecorder, self).__init__(filename, rate)
 
-        self._filename = TEMP_FILE
+        self._filename = path.expanduser(TEMP_FILE)
         self._joint_filename = filename
 
         self.joints_vicon = [['j%d_x' % i, 'j%d_y' % i, 'j%d_z' % i] for i in range(1)]
