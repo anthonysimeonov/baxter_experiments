@@ -56,21 +56,26 @@ class RolloutExecuter(Trajectory):
     - computes an additive "action" for the robot to take and sends that to the controllers
     '''
 
-    def __init__(self, debug=False):
-        #TODO add initialization args
-        super(RolloutExecuter, self).__init__()
-        self.debug = debug
+    def __init__(self, debug=False, goal_type='API'):
 
+        self.debug = debug
+        self.goal_type = goal_type
+        if self.goal_type == 'trajectory':
+            super(RolloutExecuter, self).__init__()
+
+        #limb interface - current angles needed for start move
+        self._l_arm = baxter_interface.Limb('left')
+        self._r_arm = baxter_interface.Limb('right')
+
+        #flag to signify the arm trajectories have begun executing
+        self._arm_trajectory_started = False
+        #reentrant lock to prevent same-thread lockout
+        self._lock = threading.RLock()
+
+        #gazebo subscription and world frame pose dictionary for rewards
         self.gazebo_sub = rospy.Subscriber('gazebo/link_states', gazebo_msgs.LinkStates, self.gazebo_callback)
         self.end_effector_pos = None
         self.end_effector_desired = dict()
-
-        #intermediay list of joint angles that will be popped and sent as goals
-        self.r_goal_list = []
-        self.l_goal_list = []
-
-        #local trajectory goal
-        self.local_goal = FollowJointTrajectoryGoal()
 
         #publish timing topics
         self.timing_pub_state = rospy.Publisher('/cycle_bool', std_msgs.Bool, queue_size = 1)
@@ -227,14 +232,15 @@ class RolloutExecuter(Trajectory):
             print(self.end_effector_desired.keys())
             print("---------------------\n")
 
-    def make_local_goal(self, k, goal_type='API'):
+    def make_local_goal(self, k):
         """
         Makes a local trajectory action requst goal based on
         the k and k+1 indices in the overall goal list
 
         @parak k: index of start point in the overall list of points
         """
-        if goal_type == 'API':
+        #make a dictionary for joint angles for API
+        if self.goal_type == 'API':
             self.local_goal_r = dict(zip(
                     self._r_goal.trajectory.joint_names,
                     self._r_goal.trajectory.points[k].positions))
@@ -243,7 +249,8 @@ class RolloutExecuter(Trajectory):
                     self._l_goal.trajectory.joint_names,
                     self._l_goal.trajectory.points[k].positions))
 
-        elif goal_type == 'trajectory':
+        #make a goal request for action server
+        elif self.goal_type == 'trajectory':
             self.local_goal_r = FollowJointTrajectoryGoal()
             self.local_goal_l = FollowJointTrajectoryGoal()
 
@@ -261,21 +268,13 @@ class RolloutExecuter(Trajectory):
         """
         #create a timeout for our trajectory execution
         #total time trajectory expected for trajectory execution plus a buffer
+
+        #only change is the local goal
         last_time = self.local_goal_r.trajectory.points[-1].time_from_start.to_sec()
         time_buffer = rospy.get_param(self._param_ns + 'goal_time', 0.0) + 1.5
         timeout = rospy.Duration(self._slow_move_offset +
                                  last_time +
                                  time_buffer)
-        if self.debug:
-            print("last time:\n")
-            print(last_time)
-            print("\n")
-            print("time_buffer:\n")
-            print(time_buffer)
-            print("\n")
-            print("timeout:\n")
-            print(timeout)
-            print("\n")
 
         l_finish = self._left_client.wait_for_result(timeout)
         r_finish = self._right_client.wait_for_result(timeout)
@@ -290,7 +289,7 @@ class RolloutExecuter(Trajectory):
             rospy.logwarn(msg)
             return False
 
-    def send_goal(self, goal_type='API'):
+    def send_goal(self):
         """
         Sends FollowJointTrajectoryAction request
 
@@ -298,24 +297,19 @@ class RolloutExecuter(Trajectory):
         """
         if self.debug:
             print("goals:\n")
-            # print(self._r_goal)
             print("\n-----------------------------\n")
             print(self.local_goal_r)
             print("\n")
-        if goal_type == 'API':
+        if self.goal_type == 'API':
             self._l_arm.move_to_joint_positions(self.local_goal_l)
             self._r_arm.move_to_joint_positions(self.local_goal_r)
 
-        elif goal_type == 'trajectory':
+        elif self.goal_type == 'trajectory':
             self._left_client.send_goal(self.local_goal_l, feedback_cb=self._feedback)
             self._right_client.send_goal(self.local_goal_r, feedback_cb=self._feedback)
 
-        # Syncronize playback by waiting for the trajectories to start
         print("goal sent\n")
-        # while not rospy.is_shutdown() and not self._get_trajectory_flag():
-        #     rospy.sleep(0.05)
-        #     print("waiting\n")
-        # self._execute_gripper_commands()
+
 
     def goal_iteration(self):
         """
@@ -324,15 +318,19 @@ class RolloutExecuter(Trajectory):
         """
         print("Starting goal iteration\n")
         for idx in range(len(self._r_goal.trajectory.points)-1):
-            # result = False
-            # while result == False:
-            #     self.make_local_goal(idx)
-            #     self.send_goal()
-            #     result = self.wait()
+            # if self.goal_type == 'trajectory':
+            #     result = False
+            #         while result == False:
+            #             self.make_local_goal(idx)
+            #             self.send_goal()
+            #             result = self.wait()
+            # elif self.goal_type == 'API':
             self.make_local_goal(idx)
             self.send_goal()
-            if idx % 100 == 0:
-                    print("100 points\n")
+
+            #TODO RL agent interface here
+
+
         print("goal iteration complete\n")
 
 
