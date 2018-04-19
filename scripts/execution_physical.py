@@ -3,12 +3,7 @@
  Inherited from Rethink Robotics' Trajectory class
 
  Changes:
-   1.  Record internal as well as Vicon state every
-       record cycle
-   2.  Save each demonstration into a pre-defined directory
-       post-fixed by date and a given number
-   3.  Overall recording is done after recording just the
-       internals first and then replaying to get both states
+
 """
 
 from __future__ import print_function

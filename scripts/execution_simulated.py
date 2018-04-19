@@ -3,12 +3,7 @@
  Inherited from Rethink Robotics' Trajectory class
 
  Changes:
-   1.  Record internal as well as Vicon state every
-       record cycle
-   2.  Save each demonstration into a pre-defined directory
-       post-fixed by date and a given number
-   3.  Overall recording is done after recording just the
-       internals first and then replaying to get both states
+
 """
 
 from __future__ import print_function
@@ -17,6 +12,7 @@ import argparse
 import operator
 import sys
 import threading
+import time
 
 from bisect import bisect
 from copy import copy
@@ -45,6 +41,9 @@ from baxter_interface import CHECK_VERSION
 
 import geometry_msgs.msg as geometry_msgs
 import gazebo_msgs.msg as gazebo_msgs
+import sensor_msgs.msg as sensor_msgs
+
+import pickle
 
 class RolloutExecuter(Trajectory):
     '''
@@ -56,12 +55,34 @@ class RolloutExecuter(Trajectory):
     - computes an additive "action" for the robot to take and sends that to the controllers
     '''
 
-    def __init__(self, debug=False, goal_type='API'):
+    def __init__(self, debug=False, goal_type='API', state_type='OL'):
 
         self.debug = debug
-        self.goal_type = goal_type
+        self.goal_type = goal_type  #default API
+        self.state_type = state_type  #default OL = open loop
+
         if self.goal_type == 'trajectory':
             super(RolloutExecuter, self).__init__()
+        #create our action server clients
+        self._left_client = actionlib.SimpleActionClient(
+            'robot/limb/left/follow_joint_trajectory',
+            FollowJointTrajectoryAction,
+        )
+        self._right_client = actionlib.SimpleActionClient(
+            'robot/limb/right/follow_joint_trajectory',
+            FollowJointTrajectoryAction,
+        )
+
+        #param namespace
+        self._param_ns = '/rsdk_joint_trajectory_action_server/'
+
+        #create our goal request
+        self._l_goal = FollowJointTrajectoryGoal()
+        self._r_goal = FollowJointTrajectoryGoal()
+
+        #gripper goal trajectories
+        self._l_grip = FollowJointTrajectoryGoal()
+        self._r_grip = FollowJointTrajectoryGoal()
 
         #limb interface - current angles needed for start move
         self._l_arm = baxter_interface.Limb('left')
@@ -77,14 +98,42 @@ class RolloutExecuter(Trajectory):
         self.end_effector_pos = None
         self.end_effector_desired = dict()
 
+        #robot subscription for state information (dictionary of lists indexed by timestep)
+        self.robot_state_sub = rospy.Subscriber('robot/joint_states', sensor_msgs.JointState, self.robot_state_callback)
+        self.robot_state_current = dict()
+        self.robot_joint_names = None
+        self.state_keys = ['delta_theta', 'torque']
+        if self.state_type == 'CL':
+            self.state_keys.append('world_pose')
+
+        #world frame error in current end effector position and desired from parsed file
+        self.world_error = []
+
         #publish timing topics
         self.timing_pub_state = rospy.Publisher('/cycle_bool', std_msgs.Bool, queue_size = 1)
         self.timing_msg_state = std_msgs.Bool()
     	self.timing_pub_time = rospy.Publisher('/cycle_time', std_msgs.Time, queue_size = 1)
     	self.timing_msg_time = std_msgs.Time()
 
+        #maintain dictionaries of variables to dump at the end or query
+        self.gazebo_dump = []
+        self.state_dump = dict()
+        self.action_dump = []
+        self.reward_dump = []
+
+    def init_state_vector(self):
+        for key in self.state_keys:
+            self.robot_state_current['key'] = dict()
+            for name in self.robot_joint_names:
+                self.robot_state_curent['key']['name'] = 0
+
+        
+
     def gazebo_callback(self, data):
         self.end_effector_pos = [data.pose[-1].position.x, data.pose[-1].position.y, data.pose[-1].position.z]
+
+    def robot_state_callback(self, data):
+        self.
 
     def publish_bool(self, trajectory_state):
         if trajectory_state:
@@ -135,7 +184,7 @@ class RolloutExecuter(Trajectory):
     def parse_file(self, filename):
         """
         Parses input file into FollowJointTrajectoryGoal format
-        and adds the gazebo states to a list for reward computation
+        and adds the vicon states to a list for reward computation
 
         @param filename: input filename
         """
@@ -153,7 +202,7 @@ class RolloutExecuter(Trajectory):
                 self._l_goal.trajectory.joint_names.append(name)
             elif 'right' == name[:-3]:
                 self._r_goal.trajectory.joint_names.append(name)
-            elif 'j' == name[0]:
+            elif 'gazebo' == name[:-3]:
                 self.end_effector_desired[name] = []
                 # joint_names.remove(name)  #separate joint names from link names
                 link_names.append(name)
@@ -240,6 +289,7 @@ class RolloutExecuter(Trajectory):
         @parak k: index of start point in the overall list of points
         """
         #make a dictionary for joint angles for API
+
         if self.goal_type == 'API':
             self.local_goal_r = dict(zip(
                     self._r_goal.trajectory.joint_names,
@@ -301,8 +351,11 @@ class RolloutExecuter(Trajectory):
             print(self.local_goal_r)
             print("\n")
         if self.goal_type == 'API':
-            self._l_arm.move_to_joint_positions(self.local_goal_l)
-            self._r_arm.move_to_joint_positions(self.local_goal_r)
+            # self._l_arm.move_to_joint_positions(self.local_goal_l)
+            # self._r_arm.move_to_joint_positions(self.local_goal_r)
+            self._l_arm.set_joint_positions(self.local_goal_l, raw=False)
+            self._r_arm.set_joint_positions(self.local_goal_r, raw=False)
+            rospy.sleep(0.01)
 
         elif self.goal_type == 'trajectory':
             self._left_client.send_goal(self.local_goal_l, feedback_cb=self._feedback)
@@ -317,7 +370,9 @@ class RolloutExecuter(Trajectory):
         executes the trajectory in discrete 2 step sequences
         """
         print("Starting goal iteration\n")
-        for idx in range(len(self._r_goal.trajectory.points)-1):
+        self._l_arm.set_joint_position_speed(1.0)
+        self._r_arm.set_joint_position_speed(1.0)
+        for idx in range(len(self._r_goal.trajectory.points)-2):
             # if self.goal_type == 'trajectory':
             #     result = False
             #         while result == False:
@@ -329,9 +384,30 @@ class RolloutExecuter(Trajectory):
             self.send_goal()
 
             #TODO RL agent interface here
+            #compute error between desired and current position (do this before or after?)
+            self.compare_world_frame(idx+1)
 
+
+            if self.debug:
+                print("Error between desired and current end effector position: \n")
+                print(self.world_error[-1])
+                print("\n")
 
         print("goal iteration complete\n")
+
+    def compare_world_frame(self, index):
+        self.world_error.append([
+                abs(self.end_effector_pos[0] - self.end_effector_desired['gazebo0_x'][index]),
+                abs(self.end_effector_pos[1] - self.end_effector_desired['gazebo0_y'][index]),
+                abs(self.end_effector_pos[2] - self.end_effector_desired['gazebo0_z'][index])
+                ])
+
+
+    def dump_variables(self, dump_filename):
+        filename = dump_filename + '.pkl'
+        with open(filename, 'w') as f:
+            pickle.dump([self.vicon_dump, self.state_dump, self.action_dump, self.reward_dump], f)
+
 
 
 
@@ -396,6 +472,9 @@ Related examples:
     #     result = traj.wait()
     #     traj.publish_bool(0)
     #     loop_cnt = loop_cnt + 1
+    print("Dumping variables\n")
+    traj.dump_variables('test_file')
+    print("Dumped\n")
     print("Exiting - File Playback Complete")
 
 if __name__ == "__main__":
