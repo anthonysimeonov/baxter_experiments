@@ -102,7 +102,7 @@ class RolloutExecuter(Trajectory):
         self.robot_state_sub = rospy.Subscriber('robot/joint_states', sensor_msgs.JointState, self.robot_state_callback)
         self.robot_state_current = dict()
         self.robot_joint_names = None
-        self.state_keys = ['delta_theta', 'torque']
+        self.state_keys = ['theta', 'theta_0', 'torque']
         if self.state_type == 'CL':
             self.state_keys.append('world_pose')
 
@@ -122,18 +122,53 @@ class RolloutExecuter(Trajectory):
         self.reward_dump = []
 
     def init_state_vector(self):
-        for key in self.state_keys:
-            self.robot_state_current['key'] = dict()
-            for name in self.robot_joint_names:
-                self.robot_state_curent['key']['name'] = 0
+        """
+        method to initialize the dictionary of robot states
 
-        
+        self.state_keys is initialized in __init__, includes 'theta/theta_0/torque'
+        self.robot_joint_names are the Baxter joint names
+        the state vector is a dictionar in form state = {key1: {name1: [...], name2: [...]}, key2: {}}
+        """
+        for key in self.state_keys:
+            self.robot_state_current[key] = dict()
+            self.state_dump[key] = dict()
+
+            for name in self.robot_joint_names:
+                self.robot_state_current[key][name] = 0
+                self.state_dump[key][name] = []
+
+        if self.debug:
+            print("State dictionary keys: \n")
+            print(self.robot_state_current.keys())
+            print("\n")
+
 
     def gazebo_callback(self, data):
+        """
+        Callback function for gazebo subscriber, fills attribute of current gazebo position
+        of end effector
+        """
         self.end_effector_pos = [data.pose[-1].position.x, data.pose[-1].position.y, data.pose[-1].position.z]
 
     def robot_state_callback(self, data):
-        self.
+        """
+        Put data from topic msg in current state attribute
+
+        Need to do some fun indexing to deal with the joint names and order that
+        the values come in from the msg
+
+        TODO: Decide how to implement the delta_theta as part of the state
+        """
+        for name in self.robot_joint_names:
+            try:
+                idx = data.name.index(name)
+                self.robot_state_current['torque'][name] = data.effort[idx]
+                self.robot_state_current['theta_0'][name] = self.robot_state_current['theta'][name]
+                self.robot_state_current['theta'][name] = data.position[idx]
+            except ValueError:
+                pass
+
+            #TODO put the world frame pose in when using closed loop mode
 
     def publish_bool(self, trajectory_state):
         if trajectory_state:
@@ -143,6 +178,17 @@ class RolloutExecuter(Trajectory):
         self.timing_msg_time = rospy.Time.now()
         self.timing_pub_state.publish(self.timing_msg_state)
         self.timing_pub_time.publish(self.timing_msg_time)
+
+    def append_dump(self):
+        """
+        Fill out the internal variables that are dumped with pickle at the end
+        """
+        for key in self.state_dump.keys():
+            for name in self.state_dump[key].keys():
+                self.state_dump[key][name].append(self.robot_state_current[key][name])
+
+        self.gazebo_dump.append(self.end_effector_pos)
+        #fill action and reward
 
     def _clean_line(self, line, joint_names, link_names):
         """
@@ -215,6 +261,9 @@ class RolloutExecuter(Trajectory):
             print("link_names:\n")
             print(link_names)
             print("\n")
+
+        #set self.joint_names attribute for filling state vector
+        self.robot_joint_names = joint_names
 
         def find_start_offset(pos):
             #create empty lists
@@ -350,9 +399,8 @@ class RolloutExecuter(Trajectory):
             print("\n-----------------------------\n")
             print(self.local_goal_r)
             print("\n")
+
         if self.goal_type == 'API':
-            # self._l_arm.move_to_joint_positions(self.local_goal_l)
-            # self._r_arm.move_to_joint_positions(self.local_goal_r)
             self._l_arm.set_joint_positions(self.local_goal_l, raw=False)
             self._r_arm.set_joint_positions(self.local_goal_r, raw=False)
             rospy.sleep(0.01)
@@ -386,6 +434,7 @@ class RolloutExecuter(Trajectory):
             #TODO RL agent interface here
             #compute error between desired and current position (do this before or after?)
             self.compare_world_frame(idx+1)
+            self.append_dump()
 
 
             if self.debug:
@@ -396,17 +445,20 @@ class RolloutExecuter(Trajectory):
         print("goal iteration complete\n")
 
     def compare_world_frame(self, index):
+        """
+        Compares the absolute error between current end effector position as listened to from gazebo to the
+        world frame positions parsed from the original demonstration file
+        """
         self.world_error.append([
                 abs(self.end_effector_pos[0] - self.end_effector_desired['gazebo0_x'][index]),
                 abs(self.end_effector_pos[1] - self.end_effector_desired['gazebo0_y'][index]),
                 abs(self.end_effector_pos[2] - self.end_effector_desired['gazebo0_z'][index])
                 ])
 
-
     def dump_variables(self, dump_filename):
         filename = dump_filename + '.pkl'
         with open(filename, 'w') as f:
-            pickle.dump([self.vicon_dump, self.state_dump, self.action_dump, self.reward_dump], f)
+            pickle.dump([self.gazebo_dump, self.state_dump, self.action_dump, self.reward_dump, self.world_error], f)
 
 
 
@@ -442,6 +494,10 @@ Related examples:
         '-l', '--loops', type=int, default=1,
         help='number of playback loops. 0=infinite.'
     )
+    parser.add_argument(
+        '-p', '--pickle', type=str, required=True,
+        help='path to save pickled dump file'
+    )
     # remove ROS args and filename (sys.arv[0]) for argparse
     args = parser.parse_args(rospy.myargv()[1:])
 
@@ -455,6 +511,7 @@ Related examples:
 
     traj = RolloutExecuter(debug=True)
     traj.parse_file(path.expanduser(args.file))
+    traj.init_state_vector()
     #for safe interrupt handling
     rospy.on_shutdown(traj.stop)
     traj.goal_iteration()
@@ -473,7 +530,7 @@ Related examples:
     #     traj.publish_bool(0)
     #     loop_cnt = loop_cnt + 1
     print("Dumping variables\n")
-    traj.dump_variables('test_file')
+    traj.dump_variables(str(args.pickle))
     print("Dumped\n")
     print("Exiting - File Playback Complete")
 
