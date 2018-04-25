@@ -82,8 +82,8 @@ class GazeboRecorder(baxter_examples.JointRecorder):
                 f.write(','.join([j for j in self.gazebo_link_names]))
                 f.write('\n')
 
-                while not self.done():
                     # Look for gripper button presses
+                    while not self.done():
                     if self._io_left_lower.state:
                         self._gripper_left.open()
                     elif self._io_left_upper.state:

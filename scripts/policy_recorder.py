@@ -40,7 +40,7 @@ class ViconRecorder(baxter_examples.JointRecorder):
         self._filename = path.expanduser(TEMP_FILE)
         self._joint_filename = filename
 
-        self.joints_vicon = [['j%d_x' % i, 'j%d_y' % i, 'j%d_z' % i] for i in range(1)]
+        self.joints_vicon = [['world%d_x' % i, 'world%d_y' % i, 'world%d_z' % i] for i in range(1)]
 
         #initialize world frame (x, y, z) position of vicon joints
         self.pose_vicon = [[-100, -100, -100]]*len(self.joints_vicon)
