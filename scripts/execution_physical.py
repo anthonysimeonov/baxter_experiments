@@ -503,7 +503,7 @@ Related examples:
     rs.enable()
     print("Running. Ctrl-c to quit")
 
-    traj = RolloutExecuter(debug=True)
+    traj = RolloutExecuter(debug=False)
     traj.parse_file(path.expanduser(args.file))
     traj.init_state_vector()
     #for safe interrupt handling
