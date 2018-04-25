@@ -298,6 +298,10 @@ class Trajectory(object):
         """
         Sends FollowJointTrajectoryAction request
         """
+        print("------------------\n")
+        print("sample trajectory points\n")
+        print(self._r_goal.trajectory.points[:10])
+        print("-------------------")
         self._left_client.send_goal(self._l_goal, feedback_cb=self._feedback)
         self._right_client.send_goal(self._r_goal, feedback_cb=self._feedback)
         # Syncronize playback by waiting for the trajectories to start
