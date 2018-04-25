@@ -54,10 +54,12 @@ class RolloutExecuter(Trajectory):
     - computes an additive "action" for the robot to take and sends that to the controllers
     '''
 
-    def __init__(self, debug=False, goal_type='API'):
+    def __init__(self, debug=False, goal_type='API', state_type='OL'):
 
         self.debug = debug
-        self.goal_type = goal_type
+        self.goal_type = goal_type  #default API
+        self.state_type = state_type  #default OL = open loop
+
         if self.goal_type == 'trajectory':
             super(RolloutExecuter, self).__init__()
         #create our action server clients
@@ -91,9 +93,20 @@ class RolloutExecuter(Trajectory):
         self._lock = threading.RLock()
 
         #vicon subscription and world frame pose dictionary for rewards
-        # self.vicon_sub = rospy.Subscriber('vicon/j1_dim/pose', geometry_msgs.PoseStamped, self.vicon_callback)
+        self.vicon_sub = rospy.Subscriber('vicon/j1_dim/pose', geometry_msgs.PoseStamped, self.vicon_callback)
         self.end_effector_pos = None
         self.end_effector_desired = dict()
+
+        #robot subscription for state information (dictionary of lists indexed by timestep)
+        self.robot_state_sub = rospy.Subscriber('robot/joint_states', sensor_msgs.JointState, self.robot_state_callback)
+        self.robot_state_current = dict()
+        self.robot_joint_names = None
+        self.state_keys = ['theta', 'theta_0', 'torque']
+        if self.state_type == 'CL':
+            self.state_keys.append('world_pose')
+
+        #world frame error in current end effector position and desired from parsed file
+        self.world_error = []
 
         #publish timing topics
         self.timing_pub_state = rospy.Publisher('/cycle_bool', std_msgs.Bool, queue_size = 1)
@@ -102,13 +115,59 @@ class RolloutExecuter(Trajectory):
     	self.timing_msg_time = std_msgs.Time()
 
         #maintain dictionaries of variables to dump at the end or query
-        self.vicon_dump = dict()
+        self.vicon_dump = []
         self.state_dump = dict()
-        self.action_dump = dict()
+        self.action_dump = []
         self.reward_dump = []
 
+    def init_state_vector(self):
+        """
+        method to initialize the dictionary of robot states
+
+        self.state_keys is initialized in __init__, includes 'theta/theta_0/torque'
+        self.robot_joint_names are the Baxter joint names
+        the state vector is a dictionar in form state = {key1: {name1: [...], name2: [...]}, key2: {}}
+        """
+        for key in self.state_keys:
+            self.robot_state_current[key] = dict()
+            self.state_dump[key] = dict()
+
+            for name in self.robot_joint_names:
+                self.robot_state_current[key][name] = 0
+                self.state_dump[key][name] = []
+
+        if self.debug:
+            print("State dictionary keys: \n")
+            print(self.robot_state_current.keys())
+            print("\n")
+
+
     def vicon_callback(self, data):
+        """
+        Callback function for vicon subscriber, fills attribute of current vicon position
+        of end effector
+        """
         self.end_effector_pos = [data.position.x, data.position.y, data.position.z]
+
+    def robot_state_callback(self, data):
+        """
+        Put data from topic msg in current state attribute
+
+        Need to do some fun indexing to deal with the joint names and order that
+        the values come in from the msg
+
+        TODO: Decide how to implement the delta_theta as part of the state
+        """
+        for name in self.robot_joint_names:
+            try:
+                idx = data.name.index(name)
+                self.robot_state_current['torque'][name] = data.effort[idx]
+                self.robot_state_current['theta_0'][name] = self.robot_state_current['theta'][name]
+                self.robot_state_current['theta'][name] = data.position[idx]
+            except ValueError:
+                pass
+
+            #TODO put the world frame pose in when using closed loop mode
 
     def publish_bool(self, trajectory_state):
         if trajectory_state:
@@ -118,6 +177,17 @@ class RolloutExecuter(Trajectory):
         self.timing_msg_time = rospy.Time.now()
         self.timing_pub_state.publish(self.timing_msg_state)
         self.timing_pub_time.publish(self.timing_msg_time)
+
+    def append_dump(self):
+        """
+        Fill out the internal variables that are dumped with pickle at the end
+        """
+        for key in self.state_dump.keys():
+            for name in self.state_dump[key].keys():
+                self.state_dump[key][name].append(self.robot_state_current[key][name])
+
+        self.vicon_dump.append(self.end_effector_pos)
+        #fill action and reward
 
     def _clean_line(self, line, joint_names, link_names):
         """
@@ -177,7 +247,7 @@ class RolloutExecuter(Trajectory):
                 self._l_goal.trajectory.joint_names.append(name)
             elif 'right' == name[:-3]:
                 self._r_goal.trajectory.joint_names.append(name)
-            elif 'j' == name[0]:
+            elif 'world' == name[:-3]:
                 self.end_effector_desired[name] = []
                 # joint_names.remove(name)  #separate joint names from link names
                 link_names.append(name)
@@ -190,6 +260,9 @@ class RolloutExecuter(Trajectory):
             print("link_names:\n")
             print(link_names)
             print("\n")
+
+        #set self.joint_names attribute for filling state vector
+        self.robot_joint_names = joint_names
 
         def find_start_offset(pos):
             #create empty lists
@@ -359,14 +432,27 @@ class RolloutExecuter(Trajectory):
             self.send_goal()
 
             #TODO RL agent interface here
+            self.compare_world_frame(idx+1)
+            self.append_dump()
 
 
         print("goal iteration complete\n")
 
+    def compare_world_frame(self, index):
+        """
+        Compares the absolute error between current end effector position as listened to from vicon to the
+        world frame positions parsed from the original demonstration file
+        """
+        self.world_error.append([
+                abs(self.end_effector_pos[0] - self.end_effector_desired['world0_x'][index]),
+                abs(self.end_effector_pos[1] - self.end_effector_desired['world0_y'][index]),
+                abs(self.end_effector_pos[2] - self.end_effector_desired['world0_z'][index])
+                ])
+
     def dump_variables(self, dump_filename):
         filename = dump_filename + '.pkl'
         with open(filename, 'w') as f:
-            pickle.dump([self.vicon_dump, self.state_dump, self.action_dump, self.reward_dump], f)
+            pickle.dump([self.vicon_dump, self.state_dump, self.action_dump, self.reward_dump, self.world_error], f)
 
 
 
@@ -402,6 +488,10 @@ Related examples:
         '-l', '--loops', type=int, default=1,
         help='number of playback loops. 0=infinite.'
     )
+    parser.add_argument(
+        '-p', '--pickle', type=str, required=True,
+        help='path to save pickled dump file'
+    )
     # remove ROS args and filename (sys.arv[0]) for argparse
     args = parser.parse_args(rospy.myargv()[1:])
 
@@ -415,6 +505,7 @@ Related examples:
 
     traj = RolloutExecuter(debug=True)
     traj.parse_file(path.expanduser(args.file))
+    traj.init_state_vector()
     #for safe interrupt handling
     rospy.on_shutdown(traj.stop)
     traj.goal_iteration()
@@ -433,7 +524,7 @@ Related examples:
     #     traj.publish_bool(0)
     #     loop_cnt = loop_cnt + 1
     print("Dumping variables\n")
-    traj.dump_variables('test_file')
+    traj.dump_variables(str(args.pickle))
     print("Dumped\n")
     print("Exiting - File Playback Complete")
 
