@@ -429,9 +429,15 @@ class RolloutExecuter(Trajectory):
         start_time = time.time()
 
         print("Starting goal iteration\n")
-        self._l_arm.set_joint_position_speed(0.35)
-        self._r_arm.set_joint_position_speed(0.35)
-        for idx in range(len(self._r_goal.trajectory.points) - 2):
+        self._l_arm.set_joint_position_speed(0.4)
+        self._r_arm.set_joint_position_speed(0.4)
+
+        #blocking command to get to first position
+        self.make_local_goal(0)
+        self._l_arm.move_to_joint_positions(self.local_goal_l)
+        self._r_arm.move_to_joint_positions(self.local_goal_r)
+
+        for idx in range(1,len(self._r_goal.trajectory.points) - 2):
             # if self.goal_type == 'trajectory':
             #     result = False
             #         while result == False:
