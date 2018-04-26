@@ -46,7 +46,7 @@ class ViconRecorder(baxter_examples.JointRecorder):
         self.pose_vicon = [[-100, -100, -100]]*len(self.joints_vicon)
 
         # TODO make vicon subscribers more compact
-        # self.vicon_j1_sub = rospy.Subscriber('vicon/j1_dim/pose', geometry_msgs.PoseStamped, self.j1_handler)
+        self.vicon_sub = rospy.Subscriber('/vicon/marker1/pose', geometry_msgs.PoseStamped, self.vicon_callback)
         # self.vicon_j2 =
         # ...j3
         # ...j4
@@ -57,15 +57,11 @@ class ViconRecorder(baxter_examples.JointRecorder):
         '''
         self._done = False
 
-    def j1_handler(self, data):
-        '''
-        vicon/j1_dim/pose subscriber callback function:
-
-        Maps data from subscriber to [x, y, z] entry self.pose_vicon
-        with corresponding index
-
-        Index 0 for j1
-        '''
+    def vicon_callback(self, data):
+        """
+        Callback function for vicon subscriber, fills attribute of current vicon position
+        of end effector
+        """
         self.pose_vicon[0] = [data.pose.position.x, data.pose.position.y, data.pose.position.z]
 
 
@@ -168,6 +164,13 @@ Related examples:
         dest='filename',
         required=True,
         help='the file name to record to')
+    required.add_argument(
+        '-o',
+        '--old',
+        dest='old_file',
+        required=True,
+        help='the file name to playback the trajectoy from (old file)'
+    )
     parser.add_argument(
         '-r',
         '--record-rate',
@@ -175,6 +178,7 @@ Related examples:
         default=100,
         metavar='RECORDRATE',
         help='rate at which to record (default: 100)')
+
     args = parser.parse_args(rospy.myargv()[1:])
 
     print("Initializing node... ")
@@ -186,11 +190,11 @@ Related examples:
 
     joint_recorder = JointDemoRecorder(args.filename, args.record_rate)
 
-    process = threading.Thread(target=joint_recorder.recorder.record)
-    process.daemon = True
-    process.start()
-    raw_input("Recording. Press <Enter> to stop.")
-    joint_recorder.recorder.stop()
+    # process = threading.Thread(target=joint_recorder.recorder.record)
+    # process.daemon = True
+    # process.start()
+    # raw_input("Recording. Press <Enter> to stop.")
+    # joint_recorder.recorder.stop()
 
     print(
         "\nDone recording. The program will now playback the whole demonstra"
@@ -200,7 +204,7 @@ Related examples:
         rospy.sleep(1.)
         print("%d seconds..." % (5 - i))
     print("Starting joint recording...")
-    joint_recorder.parse_file(path.expanduser(TEMP_FILE))
+    joint_recorder.parse_file(path.expanduser(args.old_file))
 
     # record routine in sync
     joint_recorder.recorder.reset()

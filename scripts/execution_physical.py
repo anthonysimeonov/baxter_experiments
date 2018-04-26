@@ -41,8 +41,10 @@ from baxter_interface import CHECK_VERSION
 
 import geometry_msgs.msg as geometry_msgs
 import gazebo_msgs.msg as gazebo_msgs
+import sensor_msgs.msg as sensor_msgs
 
 import pickle
+import numpy as np
 
 class RolloutExecuter(Trajectory):
     '''
@@ -93,7 +95,7 @@ class RolloutExecuter(Trajectory):
         self._lock = threading.RLock()
 
         #vicon subscription and world frame pose dictionary for rewards
-        self.vicon_sub = rospy.Subscriber('vicon/j1_dim/pose', geometry_msgs.PoseStamped, self.vicon_callback)
+        self.vicon_sub = rospy.Subscriber('/vicon/marker1/pose', geometry_msgs.PoseStamped, self.vicon_callback)
         self.end_effector_pos = None
         self.end_effector_desired = dict()
 
@@ -119,6 +121,7 @@ class RolloutExecuter(Trajectory):
         self.state_dump = dict()
         self.action_dump = []
         self.reward_dump = []
+        self.average_error = [0, 0, 0]
 
     def init_state_vector(self):
         """
@@ -147,7 +150,7 @@ class RolloutExecuter(Trajectory):
         Callback function for vicon subscriber, fills attribute of current vicon position
         of end effector
         """
-        self.end_effector_pos = [data.position.x, data.position.y, data.position.z]
+        self.end_effector_pos = [data.pose.position.x, data.pose.position.y, data.pose.position.z]
 
     def robot_state_callback(self, data):
         """
@@ -162,7 +165,7 @@ class RolloutExecuter(Trajectory):
             try:
                 idx = data.name.index(name)
                 self.robot_state_current['torque'][name] = data.effort[idx]
-                self.robot_state_current['theta_0'][name] = self.robot_state_current['theta'][name]
+                # self.robot_state_current['theta_0'][name] = self.robot_state_current['theta'][name]
                 self.robot_state_current['theta'][name] = data.position[idx]
             except ValueError:
                 pass
@@ -182,11 +185,14 @@ class RolloutExecuter(Trajectory):
         """
         Fill out the internal variables that are dumped with pickle at the end
         """
+        start_time = time.time()
         for key in self.state_dump.keys():
             for name in self.state_dump[key].keys():
                 self.state_dump[key][name].append(self.robot_state_current[key][name])
 
         self.vicon_dump.append(self.end_effector_pos)
+        rospy.loginfo("append_dump %f seconds\n" % (time.time() - start_time))
+
         #fill action and reward
 
     def _clean_line(self, line, joint_names, link_names):
@@ -337,7 +343,7 @@ class RolloutExecuter(Trajectory):
         @parak k: index of start point in the overall list of points
         """
         #make a dictionary for joint angles for API
-
+        start_time = time.time()
         if self.goal_type == 'API':
             self.local_goal_r = dict(zip(
                     self._r_goal.trajectory.joint_names,
@@ -358,7 +364,7 @@ class RolloutExecuter(Trajectory):
             for i in range(2):
                 self.local_goal_r.trajectory.points.append(self._r_goal.trajectory.points[k+i])
                 self.local_goal_l.trajectory.points.append(self._l_goal.trajectory.points[k+i])
-        print("goal made\n")
+        rospy.loginfo("make_local_goal %f seconds\n" % (time.time() - start_time))
 
     def wait(self):
         """
@@ -393,6 +399,8 @@ class RolloutExecuter(Trajectory):
 
         @param r/l_goal_k: input single trajectory goal at k index from _r/l_goal.trajectory.points
         """
+        start_time = time.time()
+
         if self.debug:
             print("goals:\n")
             print("\n-----------------------------\n")
@@ -403,13 +411,14 @@ class RolloutExecuter(Trajectory):
             # self._r_arm.move_to_joint_positions(self.local_goal_r)
             self._l_arm.set_joint_positions(self.local_goal_l, raw=False)
             self._r_arm.set_joint_positions(self.local_goal_r, raw=False)
-            rospy.sleep(0.01)
+            rospy.sleep(0.025)
 
         elif self.goal_type == 'trajectory':
             self._left_client.send_goal(self.local_goal_l, feedback_cb=self._feedback)
             self._right_client.send_goal(self.local_goal_r, feedback_cb=self._feedback)
+        rospy.loginfo("send_goal %f seconds\n" % (time.time() - start_time))
 
-        print("goal sent\n")
+
 
 
     def goal_iteration(self):
@@ -417,10 +426,12 @@ class RolloutExecuter(Trajectory):
         Iterates through the whole list of goals in the trajectory request and
         executes the trajectory in discrete 2 step sequences
         """
+        start_time = time.time()
+
         print("Starting goal iteration\n")
-        self._l_arm.set_joint_position_speed(1.0)
-        self._r_arm.set_joint_position_speed(1.0)
-        for idx in range(len(self._r_goal.trajectory.points)):
+        self._l_arm.set_joint_position_speed(0.35)
+        self._r_arm.set_joint_position_speed(0.35)
+        for idx in range(len(self._r_goal.trajectory.points) - 2):
             # if self.goal_type == 'trajectory':
             #     result = False
             #         while result == False:
@@ -443,16 +454,22 @@ class RolloutExecuter(Trajectory):
         Compares the absolute error between current end effector position as listened to from vicon to the
         world frame positions parsed from the original demonstration file
         """
+        start_time = time.time()
+
         self.world_error.append([
                 abs(self.end_effector_pos[0] - self.end_effector_desired['world0_x'][index]),
                 abs(self.end_effector_pos[1] - self.end_effector_desired['world0_y'][index]),
                 abs(self.end_effector_pos[2] - self.end_effector_desired['world0_z'][index])
                 ])
+        rospy.loginfo("compare_world_frame %f seconds\n" % (time.time() - start_time))
+
 
     def dump_variables(self, dump_filename):
         filename = dump_filename + '.pkl'
+        for i in range(len(self.world_error[0])):
+            self.average_error[i] = sum(np.array(self.world_error)[:, i])/len(self.world_error)
         with open(filename, 'w') as f:
-            pickle.dump([self.vicon_dump, self.state_dump, self.action_dump, self.reward_dump, self.world_error], f)
+            pickle.dump([self.vicon_dump, self.state_dump, self.action_dump, self.reward_dump, self.world_error, self.average_error], f)
 
 
 
