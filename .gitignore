@@ -1,3 +1,4 @@
 *.json
+scripts/.ipynb_checkpoints/*
 anthony/*
 
