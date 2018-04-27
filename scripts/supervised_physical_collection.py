@@ -8,8 +8,6 @@
 
 from __future__ import print_function
 
-import numpy as np
-
 import argparse
 import operator
 import sys
@@ -46,7 +44,9 @@ import gazebo_msgs.msg as gazebo_msgs
 import sensor_msgs.msg as sensor_msgs
 import baxter_core_msgs.msg as baxter_core_msgs
 
+
 import pickle
+import numpy as np
 
 class RolloutExecuter(Trajectory):
     '''
@@ -96,8 +96,8 @@ class RolloutExecuter(Trajectory):
         #reentrant lock to prevent same-thread lockout
         self._lock = threading.RLock()
 
-        #gazebo subscription and world frame pose dictionary for rewards
-        self.gazebo_sub = rospy.Subscriber('gazebo/link_states', gazebo_msgs.LinkStates, self.gazebo_callback)
+        #vicon subscription and world frame pose dictionary for rewards
+        self.vicon_sub = rospy.Subscriber('/vicon/marker1/pose', geometry_msgs.PoseStamped, self.vicon_callback)
         self.end_effector_pos = None
         self.end_effector_desired = dict()
 
@@ -106,7 +106,7 @@ class RolloutExecuter(Trajectory):
         self.robot_state_current = dict()
         # self.robot_joint_names = None
         self.robot_joint_names = ['right_s0', 'right_s1', 'right_e0', 'right_e1', 'right_w0', 'right_w1', 'right_w2']
-        self.state_keys = ['theta_commanded', 'velocity', 'torque', 'theta_measured']
+        self.state_keys = ['theta_commanded', 'theta_measured', 'velocity', 'torque']
         if self.state_type == 'CL':
             self.state_keys.append('world_pose')
 
@@ -120,16 +120,16 @@ class RolloutExecuter(Trajectory):
     	self.timing_msg_time = std_msgs.Time()
 
         #maintain dictionaries of variables to dump at the end or query
-        self.gazebo_dump = []
+        self.vicon_dump = []
         self.state_dump = dict()
         self.action_dump = []
         self.reward_dump = []
+        self.average_error = [0, 0, 0]
 
-        self.programmed_positions = dict()
-        self.iterations = 1000
+        #programmed trajectories
         self.current = 0
+        self.iterations = 5000
 
-        #stop flag
         self.stop = False
 
     def init_state_vector(self):
@@ -154,12 +154,12 @@ class RolloutExecuter(Trajectory):
             print("\n")
 
 
-    def gazebo_callback(self, data):
+    def vicon_callback(self, data):
         """
-        Callback function for gazebo subscriber, fills attribute of current gazebo position
+        Callback function for vicon subscriber, fills attribute of current vicon position
         of end effector
         """
-        self.end_effector_pos = [data.pose[-1].position.x, data.pose[-1].position.y, data.pose[-1].position.z]
+        self.end_effector_pos = [data.pose.position.x, data.pose.position.y, data.pose.position.z]
 
     def robot_state_callback(self, data):
         """
@@ -174,11 +174,9 @@ class RolloutExecuter(Trajectory):
             try:
                 idx = data.name.index(name)
                 self.robot_state_current['torque'][name] = data.actual_effort[idx]
-                # self.robot_state_current['theta_command'][name] = data.commanded_position[idx]
+                self.robot_state_current['theta_commanded'][name] = data.commanded_position[idx]
                 self.robot_state_current['velocity'][name] = data.actual_velocity[idx]
                 self.robot_state_current['theta_measured'][name] = data.actual_position[idx]
-                self.robot_state_current['theta_commanded'][name] = self.local_goal_r[name]
-
             except ValueError:
                 pass
 
@@ -197,11 +195,14 @@ class RolloutExecuter(Trajectory):
         """
         Fill out the internal variables that are dumped with pickle at the end
         """
+        start_time = time.time()
         for key in self.state_dump.keys():
             for name in self.state_dump[key].keys():
                 self.state_dump[key][name].append(self.robot_state_current[key][name])
 
-        self.gazebo_dump.append(self.end_effector_pos)
+        self.vicon_dump.append(self.end_effector_pos)
+        # rospy.loginfo("append_dump %f seconds\n" % (time.time() - start_time))
+
         #fill action and reward
 
     def _clean_line(self, line, joint_names, link_names):
@@ -262,7 +263,7 @@ class RolloutExecuter(Trajectory):
                 self._l_goal.trajectory.joint_names.append(name)
             elif 'right' == name[:-3]:
                 self._r_goal.trajectory.joint_names.append(name)
-            elif 'gazebo' == name[:-3]:
+            elif 'world' == name[:-3]:
                 self.end_effector_desired[name] = []
                 # joint_names.remove(name)  #separate joint names from link names
                 link_names.append(name)
@@ -352,11 +353,10 @@ class RolloutExecuter(Trajectory):
         @parak k: index of start point in the overall list of points
         """
         #make a dictionary for joint angles for API
-
         if self.goal_type == 'API':
             self.local_goal_r = dict(zip(
                     self._r_goal.trajectory.joint_names,
-                    [0, (np.sin(self.current * 2 * np.pi/500) * np.pi/4), 0, 0, 0, 0, 0]))
+                    [0, 0, 0, (np.sin(self.current * 2 * np.pi/500) * np.pi/4) + np.pi/4, 0, 0, 2.76]))
 
             self.local_goal_l = dict(zip(
                     self._l_goal.trajectory.joint_names,
@@ -373,7 +373,6 @@ class RolloutExecuter(Trajectory):
             for i in range(2):
                 self.local_goal_r.trajectory.points.append(self._r_goal.trajectory.points[k+i])
                 self.local_goal_l.trajectory.points.append(self._l_goal.trajectory.points[k+i])
-        print("goal made\n")
 
     def wait(self):
         """
@@ -408,23 +407,24 @@ class RolloutExecuter(Trajectory):
 
         @param r/l_goal_k: input single trajectory goal at k index from _r/l_goal.trajectory.points
         """
+        start_time = time.time()
+
         if self.debug:
             print("goals:\n")
             print("\n-----------------------------\n")
             print(self.local_goal_r)
             print("\n")
-
         if self.goal_type == 'API':
+            # self._l_arm.move_to_joint_positions(self.local_goal_l)
+            # self._r_arm.move_to_joint_positions(self.local_goal_r)
             self._l_arm.set_joint_positions(self.local_goal_l, raw=False)
             self._r_arm.set_joint_positions(self.local_goal_r, raw=False)
-            rospy.sleep(0.01)
+            rospy.sleep(0.025)
 
         elif self.goal_type == 'trajectory':
             self._left_client.send_goal(self.local_goal_l, feedback_cb=self._feedback)
             self._right_client.send_goal(self.local_goal_r, feedback_cb=self._feedback)
-
-        print("goal sent\n")
-
+        # rospy.loginfo("send_goal %f seconds\n" % (time.time() - start_time))
 
     def stop_iteration(self):
         self.stop = True
@@ -434,10 +434,21 @@ class RolloutExecuter(Trajectory):
         Iterates through the whole list of goals in the trajectory request and
         executes the trajectory in discrete 2 step sequences
         """
+        start_time = time.time()
+
         print("Starting goal iteration\n")
-        self._l_arm.set_joint_position_speed(1.0)
-        self._r_arm.set_joint_position_speed(1.0)
-        for idx in range(self.iterations - 1):
+        self._l_arm.set_joint_position_speed(0.4)
+        self._r_arm.set_joint_position_speed(0.4)
+
+        #blocking command to get to first position
+        self.make_local_goal(0)
+        # self._l_arm.move_to_joint_positions(self.local_goal_l)
+        # self._r_arm.move_to_joint_positions(self.local_goal_r)
+        self._l_arm.set_joint_positions(self.local_goal_l)
+        self._r_arm.set_joint_positions(self.local_goal_r)
+
+
+        for idx in range(1,self.iterations - 1):
             # if self.goal_type == 'trajectory':
             #     result = False
             #         while result == False:
@@ -447,38 +458,38 @@ class RolloutExecuter(Trajectory):
             # elif self.goal_type == 'API':
             self.make_local_goal(idx)
             self.send_goal()
-            self.current += 1
 
             #TODO RL agent interface here
-            #compute error between desired and current position (do this before or after?)
             # self.compare_world_frame(idx+1)
             self.append_dump()
+            self.current += 1
             if self.stop:
                 break
 
-
-            # if self.debug:
-            #     print("Error between desired and current end effector position: \n")
-            #     print(self.world_error[-1])
-            #     print("\n")
 
         print("goal iteration complete\n")
 
     def compare_world_frame(self, index):
         """
-        Compares the absolute error between current end effector position as listened to from gazebo to the
+        Compares the absolute error between current end effector position as listened to from vicon to the
         world frame positions parsed from the original demonstration file
         """
+        start_time = time.time()
+
         self.world_error.append([
-                abs(self.end_effector_pos[0] - self.end_effector_desired['gazebo0_x'][index]),
-                abs(self.end_effector_pos[1] - self.end_effector_desired['gazebo0_y'][index]),
-                abs(self.end_effector_pos[2] - self.end_effector_desired['gazebo0_z'][index])
+                abs(self.end_effector_pos[0] - self.end_effector_desired['world0_x'][index]),
+                abs(self.end_effector_pos[1] - self.end_effector_desired['world0_y'][index]),
+                abs(self.end_effector_pos[2] - self.end_effector_desired['world0_z'][index])
                 ])
+        # rospy.loginfo("compare_world_frame %f seconds\n" % (time.time() - start_time))
+
 
     def dump_variables(self, dump_filename):
         filename = dump_filename + '.pkl'
+        # for i in range(len(self.world_error[0])):
+        #     self.average_error[i] = sum(np.array(self.world_error)[:, i])/len(self.world_error)
         with open(filename, 'w') as f:
-            pickle.dump([self.gazebo_dump, self.state_dump, self.action_dump, self.reward_dump, self.world_error], f)
+            pickle.dump([self.vicon_dump, self.state_dump, self.action_dump, self.reward_dump, self.world_error, self.average_error], f)
 
 
 

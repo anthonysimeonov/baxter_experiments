@@ -123,6 +123,9 @@ class RolloutExecuter(Trajectory):
         self.reward_dump = []
         self.average_error = [0, 0, 0]
 
+        #stop flag
+        self.stop = False
+
     def init_state_vector(self):
         """
         method to initialize the dictionary of robot states
@@ -421,6 +424,10 @@ class RolloutExecuter(Trajectory):
 
 
 
+
+    def stop_iteration(self):
+        self.stop = True
+
     def goal_iteration(self):
         """
         Iterates through the whole list of goals in the trajectory request and
@@ -451,6 +458,8 @@ class RolloutExecuter(Trajectory):
             #TODO RL agent interface here
             self.compare_world_frame(idx+1)
             self.append_dump()
+            if self.stop:
+                break
 
 
         print("goal iteration complete\n")
@@ -530,7 +539,7 @@ Related examples:
     traj.parse_file(path.expanduser(args.file))
     traj.init_state_vector()
     #for safe interrupt handling
-    rospy.on_shutdown(traj.stop)
+    rospy.on_shutdown(traj.stop_iteration)
     traj.goal_iteration()
 
     # result = True
