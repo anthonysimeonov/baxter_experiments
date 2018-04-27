@@ -61,7 +61,7 @@ class baxter_suppressions():
             if self._overwrench:
                 self.left_overwrench_pub.publish(msg)
             if self._gravity:
-                self.left_gravity_pub.publish(msg)                
+                self.left_gravity_pub.publish(msg)
 
 
 def main():
