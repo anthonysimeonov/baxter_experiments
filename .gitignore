@@ -2,3 +2,4 @@
 scripts/.ipynb_checkpoints/*
 anthony/*
 */.ipynb_checkpoints/*
+*.pyc
