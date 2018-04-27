@@ -40,13 +40,31 @@ import rospy
 from baxter_interface import CHECK_VERSION
 
 import geometry_msgs.msg as geometry_msgs
-import gazebo_msgs.msg as gazebo_msgs
 import sensor_msgs.msg as sensor_msgs
 import baxter_core_msgs.msg as baxter_core_msgs
 
-
 import pickle
 import numpy as np
+
+# from baxter_experiments import program_joints
+
+
+def sweep_trajectory_right(joint_name, offset, fixed, iterations):
+    #initialize with the fixed (specified for all joints, including motion)
+    joint_names = {'right_s0':0, 'right_s1':1, 'right_e0':2, 'right_e1':3, 'right_w0':4, 'right_w1':5, 'right_w2':6}
+    joint_matrix = np.tile(np.array(fixed).copy(), (iterations, 1))
+
+    #get index of swept joint
+    idx = joint_names[joint_name]
+
+    #make sweep
+    sweep = [[np.sin(i * 2*np.pi/500)] for i in range(iterations)]
+    sweep_vector = np.array(sweep)*np.pi/4 + offset
+
+    #fill proper column
+    joint_matrix[:, idx] = sweep_vector[:, 0].copy()
+
+    return (joint_matrix)
 
 class RolloutExecuter(Trajectory):
     '''
@@ -58,7 +76,7 @@ class RolloutExecuter(Trajectory):
     - computes an additive "action" for the robot to take and sends that to the controllers
     '''
 
-    def __init__(self, debug=False, goal_type='API', state_type='OL'):
+    def __init__(self, sweep_joint_dict, debug=False, goal_type='API', state_type='OL'):
 
         self.debug = debug
         self.goal_type = goal_type  #default API
@@ -128,9 +146,22 @@ class RolloutExecuter(Trajectory):
 
         #programmed trajectories
         self.current = 0
-        self.iterations = 5000
+        self.trajectory_matrix = None
+        self.sweep_joint_dict = sweep_joint_dict
+        self.iterations = self.sweep_joint_dict['iterations']
 
         self.stop = False
+
+    def init_trajectory(self):
+        self.trajectory_matrix = sweep_trajectory_right(
+                        self.sweep_joint_dict['name'],
+                        self.sweep_joint_dict['offset'],
+                        self.sweep_joint_dict['fixed'],
+                        self.sweep_joint_dict['iterations'])
+        if self.debug:
+            print("trajectory matrix:\n")
+            print(self.trajectory_matrix[:, 1])
+            print("--------------\n")
 
     def init_state_vector(self):
         """
@@ -354,25 +385,17 @@ class RolloutExecuter(Trajectory):
         """
         #make a dictionary for joint angles for API
         if self.goal_type == 'API':
+            # self.local_goal_r = dict(zip(
+            #         self._r_goal.trajectory.joint_names,
+            #         [0, 0, 0, (np.sin(self.current * 2 * np.pi/500) * np.pi/4) + np.pi/4, 0, 0, 2.76]))
             self.local_goal_r = dict(zip(
                     self._r_goal.trajectory.joint_names,
-                    [0, 0, 0, (np.sin(self.current * 2 * np.pi/500) * np.pi/4) + np.pi/4, 0, 0, 2.76]))
+                    list(self.trajectory_matrix[k, :])))
 
             self.local_goal_l = dict(zip(
                     self._l_goal.trajectory.joint_names,
                     [0, 0, 0, 0, 0, 0, 0]))
 
-        #make a goal request for action server
-        elif self.goal_type == 'trajectory':
-            self.local_goal_r = FollowJointTrajectoryGoal()
-            self.local_goal_l = FollowJointTrajectoryGoal()
-
-            self.local_goal_r.trajectory.joint_names = self._r_goal.trajectory.joint_names
-            self.local_goal_l.trajectory.joint_names = self._l_goal.trajectory.joint_names
-
-            for i in range(2):
-                self.local_goal_r.trajectory.points.append(self._r_goal.trajectory.points[k+i])
-                self.local_goal_l.trajectory.points.append(self._l_goal.trajectory.points[k+i])
 
     def wait(self):
         """
@@ -449,20 +472,13 @@ class RolloutExecuter(Trajectory):
 
 
         for idx in range(1,self.iterations - 1):
-            # if self.goal_type == 'trajectory':
-            #     result = False
-            #         while result == False:
-            #             self.make_local_goal(idx)
-            #             self.send_goal()
-            #             result = self.wait()
-            # elif self.goal_type == 'API':
             self.make_local_goal(idx)
             self.send_goal()
 
             #TODO RL agent interface here
             # self.compare_world_frame(idx+1)
             self.append_dump()
-            self.current += 1
+            # self.current += 1
             if self.stop:
                 break
 
@@ -540,8 +556,12 @@ Related examples:
     rs.enable()
     print("Running. Ctrl-c to quit")
 
-    traj = RolloutExecuter(debug=False)
+    sweep_dict = {'name':'right_e1', 'fixed':[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.7], 'offset':np.pi/4, 'iterations':5000}
+
+
+    traj = RolloutExecuter(sweep_joint_dict=sweep_dict, debug=True)
     traj.parse_file(path.expanduser(args.file))
+    traj.init_trajectory()
     traj.init_state_vector()
     #for safe interrupt handling
     rospy.on_shutdown(traj.stop_iteration)
