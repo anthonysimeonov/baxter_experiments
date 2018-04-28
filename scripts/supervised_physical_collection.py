@@ -662,14 +662,15 @@ Related examples:
         args.loops = float('inf')
         loopstr = "forever"
 
+    traj = RolloutExecuter(sweep_joint_dict=sweep_dict, debug=True)
+    rospy.on_shutdown(traj.stop_iteration)
+
     while (loop_cnt <= args.loops and not rospy.is_shutdown()):
         print("Playback loop %d of %s" % (loop_cnt, loopstr,))
-        traj = RolloutExecuter(sweep_joint_dict=sweep_dict, debug=True)
         traj.parse_file(path.expanduser(args.file))
         traj.init_trajectory()
         traj.init_state_vector()
         #for safe interrupt handling
-        rospy.on_shutdown(traj.stop_iteration)
         traj.goal_iteration()
 
         print("Dumping variables\n")
