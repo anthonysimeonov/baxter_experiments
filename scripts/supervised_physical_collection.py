@@ -49,7 +49,7 @@ import numpy as np
 # from baxter_experiments import program_joints
 
 class OrnsteinUhlenbeckProcess(object):
-    def __init__(self, dimension, num_steps, seed_vec, zero=False, theta=0.15, mu=0, sigma=0.3, dt=0.01):
+    def __init__(self, dimension, num_steps, seed_vec, theta=0.15, mu=0, sigma=0.3, dt=0.01):
         self.theta = theta
         self.mu = mu
         self.sigma = sigma
@@ -58,7 +58,7 @@ class OrnsteinUhlenbeckProcess(object):
         self.num_steps = num_steps
         self.counter = 0
         self.seed_vec = np.array(seed_vec)
-        self.reset(zero)
+        self.reset()
 
     def step(self):
         #scale = np.exp(-self.counter * 2.3 / self.num_steps)
@@ -66,17 +66,18 @@ class OrnsteinUhlenbeckProcess(object):
         return self.x
 
     def reset(self, zero=False):
-        self.x = self.seed_vec
-        if zero:
-            self.x = np.zeros(self.dimension)
+        # self.x = self.seed_vec
+        # if zero:
+        self.x = np.zeros(self.dimension)
         #self.counter += 1
 
-    def make_new_walk(self, length):
+    def make_new_walk(self, length, scale_vec, shift_vec):
         self.reset()
         walk = self.x
         for i in range(length):
             self.step()
             walk = np.vstack([walk, self.x])
+        walk = (walk * scale_vec) + shift_vec
         return (walk)
 
 def sweep_trajectory_right(joint_name, offset, fixed, iterations):
@@ -200,8 +201,16 @@ class RolloutExecuter(Trajectory):
 
         self.stop = False
 
-        self.random_walk = OrnsteinUhlenbeckProcess(dimension=5, num_steps=self.iterations, seed_vec=self.sweep_joint_dict['fixed'][1:-1])
-        self.random_trajectory = self.random_walk.make_new_walk(length=self.iterations)
+        self.joint_scale = np.array([1/2.5, 1/2.5, 1.5/2.5, 1.5/2.5, 3/2.5, 2/2.5])
+        self.joint_shift = np.array([-np.pi/6, -np.pi/6, -np.pi/4, np.pi/4, 0, 0])
+
+        self.joint_min = [-np.pi/3, -np.pi/3, -np.pi/2, 0, -np.pi/2, -np.pi/3, -np.pi]
+        self.joint_max = [0,  0,  0, np.pi/2, np.pi/2, np.pi/3, np.pi]
+
+        self.random_walk = OrnsteinUhlenbeckProcess(
+                    dimension=6, num_steps=self.iterations,
+                    seed_vec=self.sweep_joint_dict['fixed'][1:-1])
+        self.random_trajectory = self.random_walk.make_new_walk(length=self.iterations, scale_vec=self.joint_scale, shift_vec=self.joint_shift)
 
         if self.debug:
             print("random walk trajectory: \n")
@@ -216,7 +225,7 @@ class RolloutExecuter(Trajectory):
             print("\n")
             print("------- \n")
 
-        self.random_trajectory = np.hstack((np.ones((self.iterations+1, 1))*0, self.random_trajectory, np.ones((self.iterations+1, 1))*2.7))
+        self.random_trajectory = np.hstack((self.random_trajectory, np.ones((self.iterations+1, 1))*2.7))
 
 
 
@@ -461,9 +470,15 @@ class RolloutExecuter(Trajectory):
             #         self._r_goal.trajectory.joint_names,
             #         list(self.trajectory_matrix[k, :])))
 
+            clipped_goal = np.clip(self.random_trajectory[k, :], self.joint_min, self.joint_max)
+
+            # self.local_goal_r = dict(zip(
+            #         self._r_goal.trajectory.joint_names,
+            #         list(self.random_trajectory[k, :])))
+
             self.local_goal_r = dict(zip(
                     self._r_goal.trajectory.joint_names,
-                    list(self.random_trajectory[k, :])))
+                    list(clipped_goal)))
 
             self.local_goal_l = dict(zip(
                     self._l_goal.trajectory.joint_names,
@@ -525,6 +540,12 @@ class RolloutExecuter(Trajectory):
     def stop_iteration(self):
         self.stop = True
 
+    def torque_limit(self):
+        torques = np.array([[self.robot_state_current['torque'][name]] for name in self.robot_state_current['torque'].keys()])
+        if (np.abs(torques).max() > 40):
+            self.stop_iteration()
+            print("TORQUE LIMIT REACHED -- ABORTING -- \n")
+
     def goal_iteration(self):
         """
         Iterates through the whole list of goals in the trajectory request and
@@ -547,6 +568,7 @@ class RolloutExecuter(Trajectory):
         for idx in range(1,self.iterations - 1):
             self.make_local_goal(idx)
             self.send_goal()
+            self.torque_limit()
 
             #TODO RL agent interface here
             # self.compare_world_frame(idx+1)
@@ -629,20 +651,35 @@ Related examples:
     rs.enable()
     print("Running. Ctrl-c to quit")
 
-
     current = [0.42031073588060336, -0.054072822772960834, 1.1685098651717138, 1.5240099127641586, -1.5067526289004476, -0.21974274786458553, 3.0092868106342103]
-    des = [0.0, -1.2, 0.4, 1.3, -0.2, 0.5, 2.7]
+    des = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.7]
 
-    sweep_dict = {'name':'right_s1', 'fixed':des, 'offset':0, 'iterations':2000}
+    sweep_dict = {'name':'right_s1', 'fixed':des, 'offset':0, 'iterations':1000}
 
+    loop_cnt = 1
+    loopstr = str(args.loops)
+    if args.loops == 0:
+        args.loops = float('inf')
+        loopstr = "forever"
 
-    traj = RolloutExecuter(sweep_joint_dict=sweep_dict, debug=True)
-    traj.parse_file(path.expanduser(args.file))
-    traj.init_trajectory()
-    traj.init_state_vector()
-    #for safe interrupt handling
-    rospy.on_shutdown(traj.stop_iteration)
-    traj.goal_iteration()
+    while (loop_cnt <= args.loops and not rospy.is_shutdown()):
+        print("Playback loop %d of %s" % (loop_cnt, loopstr,))
+        traj = RolloutExecuter(sweep_joint_dict=sweep_dict, debug=True)
+        traj.parse_file(path.expanduser(args.file))
+        traj.init_trajectory()
+        traj.init_state_vector()
+        #for safe interrupt handling
+        rospy.on_shutdown(traj.stop_iteration)
+        traj.goal_iteration()
+
+        print("Dumping variables\n")
+        pickle_name = str(args.pickle) + "loop%d"%loop_cnt
+        traj.dump_variables(pickle_name)
+        print("Dumped\n")
+        time.sleep(5)
+        loop_cnt += 1
+
+    print("Exiting - File Playback Complete")
 
     # result = True
     # loop_cnt = 1
@@ -657,10 +694,7 @@ Related examples:
     #     result = traj.wait()
     #     traj.publish_bool(0)
     #     loop_cnt = loop_cnt + 1
-    print("Dumping variables\n")
-    traj.dump_variables(str(args.pickle))
-    print("Dumped\n")
-    print("Exiting - File Playback Complete")
+
 
 if __name__ == "__main__":
     main()
