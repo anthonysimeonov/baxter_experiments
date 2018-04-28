@@ -48,6 +48,36 @@ import numpy as np
 
 # from baxter_experiments import program_joints
 
+class OrnsteinUhlenbeckProcess(object):
+    def __init__(self, dimension, num_steps, seed_vec, zero=False, theta=0.15, mu=0, sigma=0.3, dt=0.01):
+        self.theta = theta
+        self.mu = mu
+        self.sigma = sigma
+        self.dimension = dimension
+        self.dt = dt
+        self.num_steps = num_steps
+        self.counter = 0
+        self.seed_vec = np.array(seed_vec)
+        self.reset(zero)
+
+    def step(self):
+        #scale = np.exp(-self.counter * 2.3 / self.num_steps)
+        self.x = self.x + self.theta*(self.mu-self.x)*self.dt + self.sigma*np.sqrt(self.dt)*np.random.randn(self.dimension)# * scale
+        return self.x
+
+    def reset(self, zero=False):
+        self.x = self.seed_vec
+        if zero:
+            self.x = np.zeros(self.dimension)
+        #self.counter += 1
+
+    def make_new_walk(self, length):
+        self.reset()
+        walk = self.x
+        for i in range(length):
+            self.step()
+            walk = np.vstack([walk, self.x])
+        return (walk)
 
 def sweep_trajectory_right(joint_name, offset, fixed, iterations):
     #initialize with the fixed (specified for all joints, including motion)
@@ -61,7 +91,25 @@ def sweep_trajectory_right(joint_name, offset, fixed, iterations):
     sweep = [[np.sin(i * 2*np.pi/500)] for i in range(iterations)]
     sweep_vector = np.array(sweep)*np.pi/4 + offset
 
-    #fill proper column
+    #fill proper colums
+    joint_matrix[:, idx] = sweep_vector[:, 0].copy()
+
+    return (joint_matrix)
+
+def sweep_trajectory_right_multi(joint_name, offset, fixed, iterations):
+    #initialize with the fixed (specified for all joints, including motion)
+    joint_names = {'right_s0':0, 'right_s1':1, 'right_e0':2, 'right_e1':3, 'right_w0':4, 'right_w1':5, 'right_w2':6}
+    joint_matrix = np.tile(np.array(fixed).copy(), (iterations, 1))
+
+    #get index of swept joint
+    for keys in joint_names.keys():
+        idx = joint_names[joint_name]
+
+    #make sweep
+    sweep = [[np.sin(i * 2*np.pi/500)] for i in range(iterations)]
+    sweep_vector = np.array(sweep)*np.pi/4 + offset
+
+    #fill proper colums
     joint_matrix[:, idx] = sweep_vector[:, 0].copy()
 
     return (joint_matrix)
@@ -151,6 +199,26 @@ class RolloutExecuter(Trajectory):
         self.iterations = self.sweep_joint_dict['iterations']
 
         self.stop = False
+
+        self.random_walk = OrnsteinUhlenbeckProcess(dimension=5, num_steps=self.iterations, seed_vec=self.sweep_joint_dict['fixed'][1:-1])
+        self.random_trajectory = self.random_walk.make_new_walk(length=self.iterations)
+
+        if self.debug:
+            print("random walk trajectory: \n")
+            print("shape:   ")
+            print(self.random_trajectory.shape)
+            print("------- \n")
+            print("max: ")
+            print(np.max(self.random_trajectory, 0))
+            print("\n")
+            print("min:  ")
+            print(np.min(self.random_trajectory, 0))
+            print("\n")
+            print("------- \n")
+
+        self.random_trajectory = np.hstack((np.ones((self.iterations+1, 1))*0, self.random_trajectory, np.ones((self.iterations+1, 1))*2.7))
+
+
 
     def init_trajectory(self):
         self.trajectory_matrix = sweep_trajectory_right(
@@ -388,9 +456,14 @@ class RolloutExecuter(Trajectory):
             # self.local_goal_r = dict(zip(
             #         self._r_goal.trajectory.joint_names,
             #         [0, 0, 0, (np.sin(self.current * 2 * np.pi/500) * np.pi/4) + np.pi/4, 0, 0, 2.76]))
+
+            # self.local_goal_r = dict(zip(
+            #         self._r_goal.trajectory.joint_names,
+            #         list(self.trajectory_matrix[k, :])))
+
             self.local_goal_r = dict(zip(
                     self._r_goal.trajectory.joint_names,
-                    list(self.trajectory_matrix[k, :])))
+                    list(self.random_trajectory[k, :])))
 
             self.local_goal_l = dict(zip(
                     self._l_goal.trajectory.joint_names,
@@ -460,8 +533,8 @@ class RolloutExecuter(Trajectory):
         start_time = time.time()
 
         print("Starting goal iteration\n")
-        self._l_arm.set_joint_position_speed(0.4)
-        self._r_arm.set_joint_position_speed(0.4)
+        self._l_arm.set_joint_position_speed(0.25)
+        self._r_arm.set_joint_position_speed(0.25)
 
         #blocking command to get to first position
         self.make_local_goal(0)
@@ -556,7 +629,11 @@ Related examples:
     rs.enable()
     print("Running. Ctrl-c to quit")
 
-    sweep_dict = {'name':'right_e1', 'fixed':[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.7], 'offset':np.pi/4, 'iterations':5000}
+
+    current = [0.42031073588060336, -0.054072822772960834, 1.1685098651717138, 1.5240099127641586, -1.5067526289004476, -0.21974274786458553, 3.0092868106342103]
+    des = [0.0, -1.2, 0.4, 1.3, -0.2, 0.5, 2.7]
+
+    sweep_dict = {'name':'right_s1', 'fixed':des, 'offset':0, 'iterations':2000}
 
 
     traj = RolloutExecuter(sweep_joint_dict=sweep_dict, debug=True)
