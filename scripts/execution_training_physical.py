@@ -46,7 +46,7 @@ import sensor_msgs.msg as sensor_msgs
 import pickle
 import numpy as np
 
-from baxter_experiments import 
+from ..PyTorchRL.examples import PPOTrainer
 
 class RolloutExecuter(Trajectory):
     '''
@@ -127,6 +127,9 @@ class RolloutExecuter(Trajectory):
 
         #stop flag
         self.stop = False
+
+        # reinforcement learner
+        learner = PPOTrainer()
 
     def init_state_vector(self):
         """
