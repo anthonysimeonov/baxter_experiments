@@ -67,7 +67,7 @@ class baxter_suppressions():
 def main():
     rospy.init_node('baxter_suppressor', anonymous = True)
     rate = rospy.Rate(15)
-    suppressions = baxter_suppressions()
+    suppressions = baxter_suppressions(collisions=False, body=False)
 
     print("Turning on all relevant suppressions for the baxter... stay safe... \n")
 
