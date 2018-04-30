@@ -654,7 +654,7 @@ Related examples:
     current = [0.42031073588060336, -0.054072822772960834, 1.1685098651717138, 1.5240099127641586, -1.5067526289004476, -0.21974274786458553, 3.0092868106342103]
     des = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.7]
 
-    sweep_dict = {'name':'right_s1', 'fixed':des, 'offset':0, 'iterations':1000}
+    sweep_dict = {'name':'right_s1', 'fixed':des, 'offset':0, 'iterations':10000}
 
     loop_cnt = 1
     loopstr = str(args.loops)
