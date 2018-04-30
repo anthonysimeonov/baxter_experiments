@@ -1,3 +1,3 @@
 [submodule "PyTorch-RL"]
 	path = PyTorch-RL
-	url = git@github.com:zephirefaith/PyTorch-RL.git
+	url = https://github.com/zephirefaith/PyTorch-RL.git
