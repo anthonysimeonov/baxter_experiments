@@ -27,7 +27,7 @@ import gazebo_msgs.msg as gazebo_msgs
 TEMP_FILE = '~/.ros/temp_demo_baxter'
 
 
-class GazeboRecorder(baxter_examples.JointRecorder):
+class GazeboRecorder(baxter_experiments.JointRecorder):
     '''
     Class inherited from JointRecorder modified to launch record() in a separate
     thread. record() also runs in two separate modes now: the guided by human

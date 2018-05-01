@@ -26,7 +26,7 @@ import geometry_msgs.msg as geometry_msgs
 TEMP_FILE = '~/.ros/temp_demo_baxter'
 
 
-class ViconRecorder(baxter_examples.JointRecorder):
+class ViconRecorder(baxter_experiments.JointRecorder):
     '''
     Class inherited from JointRecorder modified to launch record() in a separate
     thread. record() also runs in two separate modes now: the guided by human
