@@ -95,7 +95,7 @@ class RolloutExecuter(Trajectory):
         self._lock = threading.RLock()
 
         #vicon subscription and world frame pose dictionary for rewards
-        self.vicon_sub = rospy.Subscriber('/vicon/marker1/pose', geometry_msgs.PoseStamped, self.vicon_callback)
+        self.vicon_sub = rospy.Subscriber('/vicon/marker_new/pose', geometry_msgs.PoseStamped, self.vicon_callback)
         self.end_effector_pos = None
         self.end_effector_desired = dict()
 
@@ -103,7 +103,7 @@ class RolloutExecuter(Trajectory):
         self.robot_state_sub = rospy.Subscriber('robot/joint_states', sensor_msgs.JointState, self.robot_state_callback)
         self.robot_state_current = dict()
         self.robot_joint_names = None
-        self.state_keys = ['theta', 'theta_0', 'torque']
+        self.state_keys = ['theta_commanded', 'theta_desired', 'theta_measured', 'velocity', 'torque']
         if self.state_type == 'CL':
             self.state_keys.append('world_pose')
 
@@ -169,7 +169,7 @@ class RolloutExecuter(Trajectory):
                 idx = data.name.index(name)
                 self.robot_state_current['torque'][name] = data.effort[idx]
                 # self.robot_state_current['theta_0'][name] = self.robot_state_current['theta'][name]
-                self.robot_state_current['theta'][name] = data.position[idx]
+                self.robot_state_current['theta_measured'][name] = data.position[idx]
             except ValueError:
                 pass
 
@@ -348,6 +348,14 @@ class RolloutExecuter(Trajectory):
         #make a dictionary for joint angles for API
         start_time = time.time()
         if self.goal_type == 'API':
+            # self.local_goal_r = dict(zip(
+            #         self._r_goal.trajectory.joint_names,
+            #         self._r_goal.trajectory.points[k].positions))
+            #
+            # self.local_goal_l = dict(zip(
+            #         self._l_goal.trajectory.joint_names,
+            #         self._l_goal.trajectory.points[k].positions))
+
             self.local_goal_r = dict(zip(
                     self._r_goal.trajectory.joint_names,
                     self._r_goal.trajectory.points[k].positions))
@@ -410,10 +418,10 @@ class RolloutExecuter(Trajectory):
             print(self.local_goal_r)
             print("\n")
         if self.goal_type == 'API':
-            # self._l_arm.move_to_joint_positions(self.local_goal_l)
-            # self._r_arm.move_to_joint_positions(self.local_goal_r)
-            self._l_arm.set_joint_positions(self.local_goal_l, raw=False)
-            self._r_arm.set_joint_positions(self.local_goal_r, raw=False)
+            self._l_arm.move_to_joint_positions(self.local_goal_l)
+            self._r_arm.move_to_joint_positions(self.local_goal_r)
+            # self._l_arm.set_joint_positions(self.local_goal_l, raw=False)
+            # self._r_arm.set_joint_positions(self.local_goal_r, raw=False)
             rospy.sleep(0.025)
 
         elif self.goal_type == 'trajectory':
@@ -436,15 +444,15 @@ class RolloutExecuter(Trajectory):
         start_time = time.time()
 
         print("Starting goal iteration\n")
-        self._l_arm.set_joint_position_speed(0.4)
-        self._r_arm.set_joint_position_speed(0.4)
+        self._l_arm.set_joint_position_speed(0.7)
+        self._r_arm.set_joint_position_speed(0.7)
 
         #blocking command to get to first position
         self.make_local_goal(0)
         self._l_arm.move_to_joint_positions(self.local_goal_l)
         self._r_arm.move_to_joint_positions(self.local_goal_r)
 
-        for idx in range(1,len(self._r_goal.trajectory.points) - 2):
+        for idx in range(1,len(self._r_goal.trajectory.points) - 2, 100):
             # if self.goal_type == 'trajectory':
             #     result = False
             #         while result == False:
@@ -456,7 +464,7 @@ class RolloutExecuter(Trajectory):
             self.send_goal()
 
             #TODO RL agent interface here
-            self.compare_world_frame(idx+1)
+            # self.compare_world_frame(idx+1)
             self.append_dump()
             if self.stop:
                 break

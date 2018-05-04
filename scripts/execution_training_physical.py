@@ -46,7 +46,7 @@ import sensor_msgs.msg as sensor_msgs
 import pickle
 import numpy as np
 
-from ..PyTorchRL.examples import PPOTrainer
+from PyTorchRL.examples import PPOTrainer
 
 class RolloutExecuter(Trajectory):
     '''

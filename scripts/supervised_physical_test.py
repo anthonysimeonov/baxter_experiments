@@ -97,27 +97,9 @@ def sweep_trajectory_right(joint_name, offset, fixed, iterations):
 
     return (joint_matrix)
 
-def sweep_trajectory_right_multi(joint_name, offset, fixed, iterations):
-    #initialize with the fixed (specified for all joints, including motion)
-    joint_names = {'right_s0':0, 'right_s1':1, 'right_e0':2, 'right_e1':3, 'right_w0':4, 'right_w1':5, 'right_w2':6}
-    joint_matrix = np.tile(np.array(fixed).copy(), (iterations, 1))
-
-    #get index of swept joint
-    for keys in joint_names.keys():
-        idx = joint_names[joint_name]
-
-    #make sweep
-    sweep = [[np.sin(i * 2*np.pi/500)] for i in range(iterations)]
-    sweep_vector = np.array(sweep)*np.pi/4 + offset
-
-    #fill proper colums
-    joint_matrix[:, idx] = sweep_vector[:, 0].copy()
-
-    return (joint_matrix)
-
 #get pickled weights
 # compensator for theta_measured to theta_commanded
-weights_file = open('/home/anthony/ros_ws/src/baxter_experiments/scripts/saved_weights.p', 'rb')
+weights_file = open('/home/anthony/ros_ws/src/baxter_experiments/models/linear_weights_0.p', 'rb')
 compensator_weights_1 = pickle.load(weights_file)
 weights_file.close()
 
@@ -491,9 +473,9 @@ class RolloutExecuter(Trajectory):
             #         self._r_goal.trajectory.joint_names,
             #         list(self.trajectory_matrix[k, :])))
 
-            # self.local_goal_r = dict(zip(
-            #         self._r_goal.trajectory.joint_names,
-            #         list(self.random_trajectory[k, :])))
+            self.local_goal_r = dict(zip(
+                    self._r_goal.trajectory.joint_names,
+                    list(self.random_trajectory[k, :])))
 
             # clipped_goal = np.clip(self.random_trajectory[k, :], self.joint_min, self.joint_max)
             #
@@ -506,9 +488,9 @@ class RolloutExecuter(Trajectory):
                 ind = self._r_goal.trajectory.joint_names.index(name)
                 self.robot_state_current['theta_desired'][name] = self._r_goal.trajectory.points[k].positions[ind]
 
-            self.local_goal_r = dict(zip(
-                    self._r_goal.trajectory.joint_names,
-                    list(compensate(self._r_goal.trajectory.points[k].positions))))
+            # self.local_goal_r = dict(zip(
+            #         self._r_goal.trajectory.joint_names,
+            #         list(compensate(self._r_goal.trajectory.points[k].positions))))
 
             # self.local_goal_r = dict(zip(
             #         self._r_goal.trajectory.joint_names,
@@ -564,7 +546,8 @@ class RolloutExecuter(Trajectory):
             # self._r_arm.move_to_joint_positions(self.local_goal_r)
             self._l_arm.set_joint_positions(self.local_goal_l, raw=False)
             self._r_arm.set_joint_positions(self.local_goal_r, raw=False)
-            rospy.sleep(0.025)
+            rospy.sleep(0.025) #CHANGE BACK TO 0.025 MAY 2 2018
+            # rospy.sleep(0.01)
 
         elif self.goal_type == 'trajectory':
             self._left_client.send_goal(self.local_goal_l, feedback_cb=self._feedback)
@@ -576,7 +559,7 @@ class RolloutExecuter(Trajectory):
 
     def torque_limit(self):
         torques = np.array([[self.robot_state_current['torque'][name]] for name in self.robot_state_current['torque'].keys()])
-        if (np.abs(torques).max() > 40):
+        if (np.abs(torques).max() > 30):
             self.stop_iteration()
             print("TORQUE LIMIT REACHED -- ABORTING -- \n")
 
@@ -588,8 +571,12 @@ class RolloutExecuter(Trajectory):
         start_time = time.time()
 
         print("Starting goal iteration\n")
-        self._l_arm.set_joint_position_speed(0.25)
+        self._l_arm.set_joint_position_speed(0.25) #CHANGE BACK TO 0.25 MAY 2 2018
         self._r_arm.set_joint_position_speed(0.25)
+
+        # self._l_arm.set_joint_position_speed(0.5)
+        # self._r_arm.set_joint_position_speed(0.5)
+
 
         #blocking command to get to first position
         self.make_local_goal(0)
